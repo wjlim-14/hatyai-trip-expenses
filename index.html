@@ -906,7 +906,22 @@ async function placeName(lat, lng) {
     return String(j.name || parts.slice(0, 2).join(', ')).slice(0, 120);
   } catch (e) { return ''; }
 }
+let placesSource = 'osm';
+async function googlePlaces(lat, lng) {
+  try {
+    const r = await fetch('/api/places?lat=' + lat + '&lng=' + lng, {cache: 'no-store', signal: AbortSignal.timeout(9000)});
+    const j = await r.json();
+    if (j.source !== 'google' || !Array.isArray(j.places)) return null;
+    return j.places.map((p) => ({name: p.name, lat: p.lat, lng: p.lng, type: p.type, d: distM(lat, lng, p.lat, p.lng)})).sort((a, b) => a.d - b.d);
+  } catch (e) { return null; }
+}
 async function nearbyPlaces(lat, lng) {
+  const g = await googlePlaces(lat, lng);
+  if (g && g.length) { placesSource = 'google'; return g; }
+  placesSource = 'osm';
+  return osmPlaces(lat, lng);
+}
+async function osmPlaces(lat, lng) {
   const q = '[out:json][timeout:8];(nwr(around:120,' + lat + ',' + lng + ')[name][~"^(shop|amenity|tourism|leisure|craft)$"~"."];);out center 60;';
   try {
     const r = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q), {signal: AbortSignal.timeout(9000)});
@@ -937,11 +952,12 @@ async function findNearby(lat, lng, my) {
   osm.forEach(add);
   if (approx) add({name: approx, lat, lng, d: 0, area: true});
   box.replaceChildren();
+  $('nearLbl').textContent = 'Nearby places: tap the right one' + (placesSource === 'google' ? ' (from Google Maps)' : ' (from OpenStreetMap)');
   if (!list.length) { box.append(el('span', 'hint', 'No named places found nearby. Type the store name below.')); return; }
   list.slice(0, 14).forEach((x) => {
     const b = el('button', 'chip', x.name); b.type = 'button';
     b.setAttribute('aria-pressed', String($('fPlace').value.trim() === x.name));
-    b.append(el('small', '', x.past ? 'used before' : x.area ? 'area' : Math.round(x.d) + ' m'));
+    b.append(el('small', '', x.past ? 'used before' : x.area ? 'area' : (x.type ? x.type + ' · ' : '') + Math.round(x.d) + ' m'));
     b.addEventListener('click', () => {
       $('fPlace').value = x.name;
       if (!x.area && x.lat) { form.loc = {lat: Math.round(x.lat * 1e6) / 1e6, lng: Math.round(x.lng * 1e6) / 1e6, acc: 0, moved: true}; setLoc('got'); }

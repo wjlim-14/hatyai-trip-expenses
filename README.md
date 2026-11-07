@@ -8,6 +8,7 @@ A shared expense tracker for the Hat Yai trip (Sat 7 – Mon 9 Nov 2026). Anyone
   - `POST /api/expenses`: add
   - `PUT /api/expenses?id=…`: edit
   - `DELETE /api/expenses?id=…`: delete
+- `api/places.js`: nearby store names from Google Places (needs `GOOGLE_MAPS_API_KEY`; without it the page uses OpenStreetMap)
 - `api/settings.js`: shared settings (the RM → ฿ exchange rate set on the Settings screen)
 
 Each expense keeps the currency it was paid in (THB or RM), the Settings rate at the time it was saved, and an optional location pin (from the phone's GPS) with a place name looked up from OpenStreetMap. Totals convert with the rate in Settings and can be shown in baht or ringgit, and plots pinned expenses on a map.
