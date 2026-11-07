@@ -188,6 +188,18 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
 .topup:hover{background:var(--bg)}
 .topup .meta{font-size:12.5px;color:var(--muted)}
 .topup .a{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ok);white-space:nowrap}
+.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow)}
+.tab{border:0;background:none;border-radius:999px;padding:9px 6px;font-weight:600;font-size:14px;color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.panel{display:flex;flex-direction:column;gap:16px}
+.panel[hidden]{display:none}
+.strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:var(--accent-soft);border-radius:var(--radius);padding:12px 14px}
+.strip .lbl{font-size:12px;color:var(--muted);font-weight:500}
+.strip .v{font-family:var(--display);font-weight:600;font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.insights{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.insights li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:14.5px}
+.insights li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px}
+.insights b{font-weight:700}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -212,33 +224,28 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
 
   <div class="status" id="status" role="status"></div>
 
-  <section class="tiles" aria-label="Totals">
-    <div class="card tile hero"><div class="lbl">Total spent</div><div class="num" id="tTotal">฿0</div><div class="sub" id="tCount">No expenses yet</div></div>
-    <div class="card tile"><div class="lbl">Per person</div><div class="num" id="tPer">฿0</div><div class="sub">If you're in every split</div></div>
-    <div class="card tile"><div class="lbl">Today</div><div class="num" id="tToday">฿0</div><div class="track" id="tBudgetBar" hidden><div class="fill" id="tBudgetFill"></div></div><div class="sub" id="tTodaySub">—</div></div>
-    <div class="card tile"><div class="lbl">Biggest expense</div><div class="num" id="tBig">—</div><div class="sub" id="tBigSub">—</div></div>
-  </section>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" type="button" role="tab" id="tab-expenses" data-tab="expenses">Expenses</button>
+    <button class="tab" type="button" role="tab" id="tab-money" data-tab="money">Fund &amp; settle up</button>
+    <button class="tab" type="button" role="tab" id="tab-insights" data-tab="insights">Insights</button>
+  </nav>
 
-  <section class="grid2">
-    <div class="card">
-      <h2>Spending by day</h2>
-      <p class="note">Total spent each day</p>
-      <div class="daychart" id="dayChart"></div>
-      <div class="dlabels" id="dayLabels"></div>
+  <div class="panel" data-panel="expenses">
+    <section class="strip" aria-label="Quick totals">
+      <div><div class="lbl">Total spent</div><div class="v" id="qTotal">฿0</div></div>
+      <div><div class="lbl">Today</div><div class="v" id="qToday">฿0</div></div>
+      <div><div class="lbl">Fund left</div><div class="v" id="qFund">—</div></div>
+    </section>
+  <section class="card" id="expenses">
+    <div class="listhead">
+      <h2>Expenses</h2>
+      <div class="chips" id="dayChips" role="group" aria-label="Show day"></div>
     </div>
-    <div class="card">
-      <h2>By category</h2>
-      <p class="note">Where the money went, with share of the total</p>
-      <div class="cats" id="catChart"><div class="empty">Nothing yet</div></div>
-    </div>
+    <div id="list"><div class="empty">Loading expenses…</div></div>
   </section>
+  </div>
 
-  <section class="card" id="payerCard" hidden>
-    <h2>Paid by</h2>
-    <p class="note">How much each person has paid upfront so far</p>
-    <div class="cats" id="payerChart"></div>
-  </section>
-
+  <div class="panel" data-panel="money" hidden>
   <section class="card" id="fundCard">
     <div class="listhead">
       <h2>Group fund</h2>
@@ -269,20 +276,61 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
       <table class="btbl"><thead><tr><th>Name</th><th class="r">Paid</th><th class="r">Share</th><th class="r">Balance</th></tr></thead><tbody id="settleBody"></tbody></table>
     </details>
   </section>
+  </div>
+
+  <div class="panel" data-panel="insights" hidden>
+  <section class="tiles" aria-label="Totals">
+    <div class="card tile hero"><div class="lbl">Total spent</div><div class="num" id="tTotal">฿0</div><div class="sub" id="tCount">No expenses yet</div></div>
+    <div class="card tile"><div class="lbl">Per person</div><div class="num" id="tPer">฿0</div><div class="sub">If you're in every split</div></div>
+    <div class="card tile"><div class="lbl">Today</div><div class="num" id="tToday">฿0</div><div class="track" id="tBudgetBar" hidden><div class="fill" id="tBudgetFill"></div></div><div class="sub" id="tTodaySub">—</div></div>
+    <div class="card tile"><div class="lbl">Biggest expense</div><div class="num" id="tBig">—</div><div class="sub" id="tBigSub">—</div></div>
+  </section>
+
+    <section class="card" id="insightCard">
+      <h2>Insights</h2>
+      <p class="note">Worked out from everything logged so far</p>
+      <ul class="insights" id="insightList"><li>Add a few expenses to see insights.</li></ul>
+    </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>Spending by day</h2>
+      <p class="note">Total spent each day</p>
+      <div class="daychart" id="dayChart"></div>
+      <div class="dlabels" id="dayLabels"></div>
+    </div>
+    <div class="card">
+      <h2>By category</h2>
+      <p class="note">Where the money went, with share of the total</p>
+      <div class="cats" id="catChart"><div class="empty">Nothing yet</div></div>
+    </div>
+  </section>
+
+    <section class="grid2">
+      <div class="card">
+        <h2>By time of day</h2>
+        <p class="note">When the money gets spent (Thailand time, from when each expense was logged)</p>
+        <div class="cats" id="timeChart"><div class="empty">Nothing yet</div></div>
+      </div>
+      <div class="card">
+        <h2>Top places</h2>
+        <p class="note">Where you spent the most</p>
+        <div class="cats" id="placeChart"><div class="empty">No places yet. Pin a location when adding expenses.</div></div>
+      </div>
+    </section>
+
+  <section class="card" id="payerCard" hidden>
+    <h2>Paid by</h2>
+    <p class="note">How much each person has paid upfront so far</p>
+    <div class="cats" id="payerChart"></div>
+  </section>
 
   <section class="card" id="mapCard" hidden>
     <h2>Where you spent</h2>
     <p class="note">Expenses with a location pin. Tap a pin for details.</p>
     <div id="map"></div>
   </section>
-
-  <section class="card">
-    <div class="listhead">
-      <h2>Expenses</h2>
-      <div class="chips" id="dayChips" role="group" aria-label="Show day"></div>
-    </div>
-    <div id="list"><div class="empty">Loading expenses…</div></div>
-  </section>
+  </div>
 </div>
 
 <div class="addbar"><button class="btn primary" id="addBtn" type="button">+ Add expense</button></div>
@@ -587,6 +635,10 @@ function render() {
   renderMap(sorted);
   renderSettle();
   renderFund();
+  renderInsights(sorted, total);
+  $('qTotal').textContent = money(total);
+  $('qToday').textContent = money(sorted.filter((r) => r.date === todayBkk).reduce((s, r) => s + r.amount, 0));
+  if (topups.length || rows.some((r) => r.paidBy === FUND)) { const f = fundTotals(); $('qFund').textContent = (f.leftThb < 0 ? '−' : '') + money(thbToView(Math.abs(f.leftThb))); } else $('qFund').textContent = '—';
 
   // day chips
   const chips = $('dayChips'); chips.replaceChildren();
@@ -844,6 +896,75 @@ function drawQuick() {
     });
     box.append(b);
   });
+}
+
+// ---------- tabs ----------
+const TABS = ['expenses', 'money', 'insights'];
+function showTab(name, push) {
+  if (!TABS.includes(name)) name = 'expenses';
+  document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  document.querySelectorAll('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  if (push && location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
+  if (name === 'insights' && map) setTimeout(() => { map.invalidateSize(); if (lastBounds) { const b = JSON.parse(lastBounds); if (b.length === 1) map.setView(b[0], 16); else map.fitBounds(b, {padding: [30, 30], maxZoom: 16}); } }, 30);
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab, true)));
+window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+
+// ---------- insights ----------
+const bkkHour = (iso) => { const d = new Date(iso); return isNaN(d) ? null : (d.getUTCHours() + 7) % 24; };
+const SLOTS = [{k: 'Morning', from: 5, to: 11, n: '5am–11am'}, {k: 'Afternoon', from: 11, to: 17, n: '11am–5pm'}, {k: 'Evening', from: 17, to: 22, n: '5pm–10pm'}, {k: 'Late night', from: 22, to: 29, n: '10pm–5am'}];
+const slotOf = (h) => SLOTS.find((s) => (h >= s.from && h < s.to) || (h + 24 >= s.from && h + 24 < s.to));
+function barRows(boxId, items, total, emptyText) {
+  const box = $(boxId); box.replaceChildren();
+  if (!items.length) { box.append(el('div', 'empty', emptyText)); return; }
+  const max = Math.max(1, ...items.map((x) => x.amt));
+  items.forEach((x) => {
+    const row = el('div', 'crow');
+    const name = el('div', 'cname'); const dot = el('span', 'dot'); dot.style.background = x.color || 'var(--accent)'; name.append(dot, el('span', '', x.label));
+    const track = el('div', 'track'); const fill = el('div', 'fill'); fill.style.width = (x.amt / max * 100) + '%'; fill.style.background = x.color || 'var(--accent)'; track.append(fill);
+    const v = el('div', 'cval'); v.append(el('b', '', money(x.amt)), document.createTextNode(x.extra || (' · ' + Math.round(x.amt / (total || 1) * 100) + '%')));
+    row.append(name, track, v); box.append(row);
+  });
+}
+function renderInsights(sorted, total) {
+  // time of day
+  const bySlot = SLOTS.map((sl) => ({label: sl.k + ' (' + sl.n + ')', amt: sorted.filter((r) => { const h = bkkHour(r.createdAt); return h !== null && slotOf(h) === sl; }).reduce((s, r) => s + r.amount, 0)})).filter((x) => x.amt > 0);
+  barRows('timeChart', bySlot, total, 'Nothing yet');
+  // top places
+  const pl = {};
+  sorted.forEach((r) => { if (r.place) { pl[r.place] = pl[r.place] || {amt: 0, n: 0}; pl[r.place].amt += r.amount; pl[r.place].n++; } });
+  const places = Object.entries(pl).map(([label, v]) => ({label, amt: v.amt, extra: ' · ' + v.n + (v.n === 1 ? ' visit' : ' visits')})).sort((a, b) => b.amt - a.amt).slice(0, 6);
+  barRows('placeChart', places, total, 'No places yet. Pin a location when adding expenses.');
+  // sentences
+  const list = $('insightList'); list.replaceChildren();
+  const add = (parts) => { const li = document.createElement('li'); const span = el('span'); parts.forEach((p) => span.append(typeof p === 'string' ? document.createTextNode(p) : el('b', '', p.b))); li.append(span); list.append(li); };
+  if (!sorted.length) { list.append(el('li', '', 'Add a few expenses to see insights.')); return; }
+  const cats = {}; sorted.forEach((r) => { cats[r.category] = (cats[r.category] || 0) + r.amount; });
+  const topCat = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+  add([{b: topCat[0]}, ' is the biggest spend: ', {b: money(topCat[1])}, ', ' + Math.round(topCat[1] / total * 100) + '% of everything.']);
+  const days = {}; sorted.forEach((r) => { days[r.date] = (days[r.date] || 0) + r.amount; });
+  const dayList = Object.entries(days).sort((a, b) => b[1] - a[1]);
+  if (dayList.length > 1) add(['Biggest day so far: ', {b: dayInfo(dayList[0][0]).long}, ' at ', {b: money(dayList[0][1])}, '.']);
+  const perHead = sorted.reduce((s, r) => s + r.amount / r.people, 0);
+  add(['Someone in every split has spent about ', {b: money(perHead / Object.keys(days).length)}, ' a day (', {b: money(perHead)}, ' in total).']);
+  if (sorted.length > 1) add([{b: String(sorted.length)}, ' expenses, averaging ', {b: money(total / sorted.length)}, ' each.']);
+  const food = sorted.filter((r) => r.category === 'Food' || r.category === 'Drinks & snacks');
+  if (food.length) { const ppMeal = food.reduce((s, r) => s + r.amount / r.people, 0) / food.length; add(['Food and drinks average ', {b: money(ppMeal)}, ' per person each time.']); }
+  const big = sorted.reduce((b, r) => (!b || r.amount > b.amount ? r : b), null);
+  if (big) add(['Most expensive: ', {b: big.description || big.category}, ' at ', {b: money(big.amount)}, big.place ? ' (' + big.place + ').' : '.']);
+  const slotTop = bySlot.slice().sort((a, b) => b.amt - a.amt)[0];
+  if (slotTop && bySlot.length > 1) add(['Most spending happens in the ', {b: slotTop.label.split(' (')[0].toLowerCase()}, ': ', {b: money(slotTop.amt)}, '.']);
+  if (places.length) add(['Top place: ', {b: places[0].label}, ' with ', {b: money(places[0].amt)}, '.']);
+  const fundPaid = sorted.filter((r) => r.paidBy === FUND).reduce((s, r) => s + r.amount, 0);
+  if (fundPaid) add([{b: Math.round(fundPaid / total * 100) + '%'}, ' of spending came out of the Group fund.']);
+  if (BUDGET) {
+    const bv = thbToView(BUDGET);
+    const over = Object.entries(days).filter(([, v]) => v > bv);
+    add(over.length ? [{b: String(over.length)}, over.length === 1 ? ' day went over' : ' days went over', ' the ', {b: money(bv)}, ' daily budget.'] : ['Every day so far is within the ', {b: money(bv)}, ' daily budget.']);
+  }
+  const rm = sorted.filter((r) => r.currency !== view);
+  if (rm.length) add([{b: String(rm.length)}, ' paid in ' + (view === 'THB' ? 'ringgit' : 'baht') + ', converted at 1 RM = ฿' + fmt(RATE || 0) + '.']);
 }
 
 // ---------- map ----------
@@ -1255,6 +1376,7 @@ async function load() {
   } finally { loading = false; }
 }
 drawFormChips();
+showTab(location.hash.slice(1));
 render();
 load();
 loadRate();
