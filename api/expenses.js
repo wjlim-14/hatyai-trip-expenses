@@ -109,13 +109,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'PUT') {
       if (!id) return res.status(400).json({ error: 'Missing expense id.' });
-      const restoring = req.query.restore === '1';
-      let old = parse(await redis.hget(KEY, id));
-      if (!old && restoring) {
-        // undo of a delete: put it back under its old id, keeping when it was first logged
-        const ca = String((body && body.createdAt) || '');
-        old = { createdAt: /^\d{4}-\d{2}-\d{2}T/.test(ca) ? ca : now };
-      }
+      const old = parse(await redis.hget(KEY, id));
       if (!old) return res.status(404).json({ error: 'That expense was deleted by someone else.' });
       const v = validate(body);
       if (v.error) return res.status(400).json({ error: v.error });
