@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hat Yai trip">
 <title>Hat Yai Trip Expenses</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,7 +191,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
 .topup:hover{background:var(--bg)}
 .topup .meta{font-size:12.5px;color:var(--muted)}
 .topup .a{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ok);white-space:nowrap}
-.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow)}
+.tabs{position:sticky;top:max(0px,env(safe-area-inset-top));z-index:5;display:grid;grid-template-columns:repeat(3,1fr) auto;gap:4px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow)}
 .tab{border:0;background:none;border-radius:999px;padding:9px 6px;font-weight:600;font-size:14px;color:var(--muted);cursor:pointer}
 .tab[aria-selected="true"]{background:var(--ink);color:var(--bg)}
 .panel{display:flex;flex-direction:column;gap:16px}
@@ -200,6 +203,10 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
 .insights li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:14.5px}
 .insights li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px}
 .insights b{font-weight:700}
+.rbtn{width:38px;height:38px;border-radius:50%;border:0;background:var(--accent-soft);color:var(--accent);cursor:pointer;display:grid;place-items:center;align-self:center}
+.rbtn svg{width:19px;height:19px}
+.rbtn.spin svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -228,6 +235,9 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
     <button class="tab" type="button" role="tab" id="tab-expenses" data-tab="expenses">Expenses</button>
     <button class="tab" type="button" role="tab" id="tab-money" data-tab="money">Fund &amp; settle up</button>
     <button class="tab" type="button" role="tab" id="tab-insights" data-tab="insights">Insights</button>
+    <button class="rbtn" type="button" id="refreshBtn" aria-label="Refresh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+    </button>
   </nav>
 
   <div class="panel" data-panel="expenses">
@@ -909,6 +919,8 @@ function showTab(name, push) {
   window.scrollTo(0, 0);
 }
 document.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab, true)));
+// full reload: latest expenses and settings, and any new version of the app (home-screen apps have no browser refresh)
+$('refreshBtn').addEventListener('click', () => { $('refreshBtn').classList.add('spin'); setTimeout(() => location.reload(), 150); });
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 
 // ---------- insights ----------
