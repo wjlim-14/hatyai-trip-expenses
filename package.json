@@ -1,0 +1,11 @@
+{
+  "name": "hatyai-trip-expenses",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared expense tracker for the Hat Yai trip",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@upstash/redis": "1.41.0"
+  }
+}
