@@ -8,20 +8,20 @@ export default async function handler(req, res) {
   if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     return res.status(400).json({ error: 'Missing or invalid location.' });
   }
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+  const url = q ? 'https://places.googleapis.com/v1/places:searchText' : 'https://places.googleapis.com/v1/places:searchNearby';
+  const payload = q
+    ? { textQuery: q, locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } }, pageSize: 10, languageCode: 'en' }
+    : { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: 150 } }, maxResultCount: 20, rankPreference: 'DISTANCE', languageCode: 'en' };
   try {
-    const r = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+    const r = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': KEY,
         'X-Goog-FieldMask': 'places.displayName,places.location,places.primaryTypeDisplayName,places.shortFormattedAddress'
       },
-      body: JSON.stringify({
-        locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: 150 } },
-        maxResultCount: 20,
-        rankPreference: 'DISTANCE',
-        languageCode: 'en'
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(8000)
     });
     const j = await r.json();

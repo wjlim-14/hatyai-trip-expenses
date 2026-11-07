@@ -148,6 +148,18 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 .near .chip{font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .near .chip small{color:var(--muted);font-weight:500;margin-left:4px}
 .hint{font-size:12.5px;color:var(--muted)}
+.psearch{position:relative}
+.psearch input{padding-left:34px}
+.psearch::before{content:"";position:absolute;left:13px;top:50%;width:11px;height:11px;border:2px solid var(--muted);border-radius:50%;transform:translateY(-62%)}
+.psearch::after{content:"";position:absolute;left:24px;top:58%;width:6px;height:2px;background:var(--muted);transform:rotate(45deg)}
+.sres{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sres:empty{display:none}
+.sres button{display:flex;justify-content:space-between;gap:10px;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:14px}
+.sres button:last-child{border-bottom:0}
+.sres button:hover{background:var(--bg)}
+.sres .sn{font-weight:600}
+.sres .sa{font-size:12px;color:var(--muted)}
+.sres .sd{font-size:12px;color:var(--muted);white-space:nowrap}
 textarea.inp{min-height:110px;resize:vertical;line-height:1.5}
 .btn.sm[disabled],.sbtn[disabled],.chip[disabled]{opacity:.45;cursor:default}
 .tile .track{margin-top:8px;height:8px}
@@ -336,6 +348,9 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
       </div>
       <div id="fMap" hidden></div>
       <span class="hint" id="fMapHint" hidden>GPS is approximate. Drag the pin to the right spot if needed.</span>
+      <label class="flabel" for="fSearch">Search for the shop</label>
+      <div class="psearch"><input class="inp" id="fSearch" type="search" autocomplete="off" placeholder="e.g. After You, Kim Yong market, 7-Eleven"></div>
+      <div class="sres" id="fResults" role="listbox" aria-label="Search results"></div>
       <span class="flabel" id="nearLbl" hidden>Nearby places: tap the right one</span>
       <div class="near" id="fNear" role="group" aria-labelledby="nearLbl"></div>
       <label class="flabel" for="fPlace">Place name: confirm or type the store</label>
@@ -985,6 +1000,62 @@ $('fLocBtn').addEventListener('click', () => { captureLocation(); });
 $('fLocClear').addEventListener('click', () => { locReq++; form.loc = null; approxName = ''; $('fPlace').value = ''; setLoc('none', 'No location'); });
 $('fPlace').addEventListener('input', () => { $('fNear').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.firstChild.textContent === $('fPlace').value.trim()))); });
 
+// ---------- shop search ----------
+let searchT = null, searchSeq = 0;
+const HATYAI = {lat: 7.0084, lng: 100.4747}; // search centre when no pin yet
+function pickPlace(x) {
+  $('fPlace').value = x.name;
+  form.loc = {lat: Math.round(x.lat * 1e6) / 1e6, lng: Math.round(x.lng * 1e6) / 1e6, acc: 0, moved: true};
+  locReq++;
+  setLoc('got');
+  if (fMap) drawFormMap();
+  $('fResults').replaceChildren();
+  $('fSearch').value = '';
+  findNearby(form.loc.lat, form.loc.lng, ++locReq);
+}
+async function searchShops(q, c) {
+  // Google text search when the key is set, else Photon (OpenStreetMap search made for search-as-you-type)
+  try {
+    const r = await fetch('/api/places?q=' + encodeURIComponent(q) + '&lat=' + c.lat + '&lng=' + c.lng, {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+    const j = await r.json();
+    if (j.source === 'google' && Array.isArray(j.places)) return {src: 'Google Maps', list: j.places.map((p) => ({name: p.name, addr: p.address || p.type || '', lat: p.lat, lng: p.lng}))};
+  } catch (e) { /* fall back */ }
+  try {
+    const r = await fetch('https://photon.komoot.io/api/?limit=10&lang=en&q=' + encodeURIComponent(q) + '&lat=' + c.lat + '&lon=' + c.lng + '&location_bias_scale=0.5', {signal: AbortSignal.timeout(8000)});
+    const j = await r.json();
+    return {src: 'OpenStreetMap', list: (j.features || []).map((f) => {
+      const p = f.properties || {}; const g = (f.geometry && f.geometry.coordinates) || [];
+      return {name: String(p.name || p.street || '').slice(0, 120), addr: [p.street, p.district || p.locality, p.city].filter(Boolean).join(', '), lat: g[1], lng: g[0]};
+    }).filter((x) => x.name && isFinite(x.lat) && isFinite(x.lng))};
+  } catch (e) { return null; }
+}
+function runSearch() {
+  const q = $('fSearch').value.trim();
+  const box = $('fResults');
+  if (q.length < 2) { box.replaceChildren(); return; }
+  const my = ++searchSeq;
+  const c = form.loc || HATYAI;
+  const past = pastPlaces().filter((r) => r.place.toLowerCase().includes(q.toLowerCase())).slice(0, 3).map((r) => ({name: r.place, addr: 'used before', lat: r.lat, lng: r.lng}));
+  box.replaceChildren(el('div', 'hint', 'Searching…'));
+  searchShops(q, c).then((res) => {
+    if (my !== searchSeq) return;
+    box.replaceChildren();
+    const list = past.concat(res ? res.list : []).filter((x, i, a) => a.findIndex((y) => y.name === x.name && Math.abs(y.lat - x.lat) < 1e-4) === i);
+    if (!list.length) { box.append(el('div', 'hint', res ? 'No matches. Try another spelling, or just type the name in Place name below.' : 'Search isn’t available right now. Type the name in Place name below.')); return; }
+    list.slice(0, 10).forEach((x) => {
+      const b = el('button'); b.type = 'button'; b.setAttribute('role', 'option');
+      const left = el('div'); left.append(el('div', 'sn', x.name), el('div', 'sa', x.addr || ''));
+      const d = distM(c.lat, c.lng, x.lat, x.lng);
+      b.append(left, el('div', 'sd', d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'));
+      b.addEventListener('click', () => pickPlace(x));
+      box.append(b);
+    });
+    if (res && res.list.length) box.append(el('div', 'hint', '  Results from ' + res.src));
+  });
+}
+$('fSearch').addEventListener('input', () => { clearTimeout(searchT); searchT = setTimeout(runSearch, 350); });
+$('fSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchT); runSearch(); } });
+
 // ---------- currency ----------
 document.querySelectorAll('[data-cur]').forEach((b) => b.addEventListener('click', () => {
   view = b.dataset.cur;
@@ -1078,6 +1149,7 @@ function openSheet(r) {
   locReq++;
   $('fPlace').value = r ? r.place : '';
   approxName = '';
+  $('fSearch').value = ''; $('fResults').replaceChildren();
   $('places').replaceChildren(...pastPlaces().map((x) => { const o = document.createElement('option'); o.value = x.place; return o; }));
   if (r && r.lat !== null) { form.loc = {lat: r.lat, lng: r.lng, acc: r.acc, moved: !r.acc}; setLoc('got'); findNearby(r.lat, r.lng, ++locReq); }
   else { form.loc = null; setLoc('none', 'No location'); if (!r) captureLocation(); }
