@@ -2,8 +2,17 @@ import { Redis } from '@upstash/redis';
 import { randomUUID } from 'node:crypto';
 
 // Vercel's Upstash integration sets KV_REST_API_*; a direct Upstash setup uses UPSTASH_REDIS_REST_*.
-const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// A custom prefix chosen when connecting (e.g. STORAGE_KV_REST_API_URL) is found too.
+const findEnv = (...suffixes) => {
+  for (const sfx of suffixes) {
+    if (process.env[sfx]) return process.env[sfx];
+    const k = Object.keys(process.env).find((n) => n.endsWith('_' + sfx) && process.env[n]);
+    if (k) return process.env[k];
+  }
+  return '';
+};
+const url = findEnv('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
+const token = findEnv('KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN');
 const redis = url && token ? new Redis({ url, token }) : null;
 
 const KEY = 'hatyai:expenses';
