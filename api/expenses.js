@@ -56,6 +56,7 @@ function validate(body) {
   if (!(amount > 0) || amount > 10000000) return { error: 'Enter an amount above 0.' };
   if (!(people >= 1) || people > 500) return { error: 'Split between 1 and 500 people.' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Pick a day for the expense.' };
+  if (body.kind === 'topup' && !ticked) return { error: 'Tick who put money into the fund.' };
   return {
     data: {
       date,
@@ -64,6 +65,7 @@ function validate(body) {
       amount,
       people,
       paidBy: String(body.paidBy || '').trim().slice(0, 60),
+      kind: body.kind === 'topup' ? 'topup' : 'expense',
       members: names(body.members),
       currency: body.currency === 'MYR' ? 'MYR' : 'THB',
       fx: Number(body.fx) > 0.5 && Number(body.fx) < 100 ? Math.round(Number(body.fx) * 10000) / 10000 : 0,

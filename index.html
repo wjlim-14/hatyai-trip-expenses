@@ -164,6 +164,18 @@ textarea.inp{min-height:110px;resize:vertical;line-height:1.5}
 .neg{color:var(--bad);font-weight:600}
 details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);margin-top:10px}
 .memtools{display:flex;gap:6px}
+.fundnums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.fundnums .lbl{font-size:12px;color:var(--muted)}
+.fundnums .v{font-family:var(--display);font-weight:600;font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.fundnums .v.left{color:var(--ok)}
+.fundnums .v.low{color:var(--bad)}
+#fundCard .track{height:10px}
+.chip.fund[aria-pressed="true"]{background:var(--ok);border-color:var(--ok);color:#fff}
+.chip.fund{border-color:var(--ok);color:var(--ok)}
+.topup{display:flex;justify-content:space-between;gap:10px;align-items:center;width:100%;padding:10px 2px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer;font-size:14px}
+.topup:hover{background:var(--bg)}
+.topup .meta{font-size:12.5px;color:var(--muted)}
+.topup .a{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ok);white-space:nowrap}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -213,6 +225,24 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
     <h2>Paid by</h2>
     <p class="note">How much each person has paid upfront so far</p>
     <div class="cats" id="payerChart"></div>
+  </section>
+
+  <section class="card" id="fundCard">
+    <div class="listhead">
+      <h2>Group fund</h2>
+      <button class="btn sm primary" id="topupBtn" type="button">+ Top up</button>
+    </div>
+    <p class="note" id="fundNote">Pool money together, then choose “Group fund” as the payer. Spending comes straight out of the pool.</p>
+    <div class="fundnums">
+      <div><div class="lbl">Topped up</div><div class="v" id="fIn">฿0</div></div>
+      <div><div class="lbl">Spent</div><div class="v" id="fOut">฿0</div></div>
+      <div><div class="lbl">Left</div><div class="v left" id="fLeft">฿0</div></div>
+    </div>
+    <div class="track"><div class="fill" id="fundFill" style="background:var(--ok)"></div></div>
+    <details id="fundDetails" hidden>
+      <summary>Top-ups</summary>
+      <div id="fundList"></div>
+    </details>
   </section>
 
   <section class="card" id="settleCard">
@@ -351,6 +381,43 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
   </form>
 </div>
 
+<div class="scrim" id="tpScrim" hidden>
+  <form class="sheet" id="tpForm" role="dialog" aria-modal="true" aria-labelledby="tpTitle" novalidate>
+    <h3 id="tpTitle">Top up the group fund</h3>
+    <div class="field">
+      <label for="tpAmount">Each person puts in</label>
+      <div class="amtrow">
+        <div class="amtwrap"><span id="tpSym">฿</span><input id="tpAmount" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="curpick" role="group" aria-label="Currency">
+          <button class="chip" type="button" data-tcur="THB">THB</button>
+          <button class="chip" type="button" data-tcur="MYR">RM</button>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <span class="flabel" id="tpWhoLbl">Who put money in</span>
+      <div class="near" id="tpWho" role="group" aria-labelledby="tpWhoLbl"></div>
+      <div class="memtools">
+        <button class="btn sm" type="button" id="tpAll">Everyone</button>
+        <button class="btn sm" type="button" id="tpNone">Clear</button>
+      </div>
+      <span class="each" id="tpTotal"></span>
+    </div>
+    <div class="field">
+      <label for="tpNote">Note (optional)</label>
+      <input class="inp" id="tpNote" autocomplete="off" placeholder="e.g. Sunday kitty, held by Wei Jie">
+    </div>
+    <div class="err" id="tpErr" role="alert"></div>
+    <div class="sheet-actions">
+      <button class="btn danger" type="button" id="tpDel" hidden>Delete</button>
+      <div class="right">
+        <button class="btn" type="button" id="tpCancel">Cancel</button>
+        <button class="btn primary" type="submit" id="tpSave">Save</button>
+      </div>
+    </div>
+  </form>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -378,6 +445,8 @@ const money = (n) => sym(view) + fmt(n);
 const thbToView = (thb) => (view === 'MYR' && RATE ? thb / RATE : thb);
 let RATE = null; // THB per 1 MYR, from Settings (shared)
 let MEMBERS = [];
+const FUND = 'Group fund';
+let topups = [];
 let BUDGET = null; // THB per day
 let view = 'THB';
 try { const v = localStorage.getItem('hy-view'); if (v === 'MYR' || v === 'THB') view = v; } catch (e) { /* storage unavailable */ }
@@ -417,6 +486,7 @@ function clean(r) {
     lng: typeof r.lng === 'number' && isFinite(r.lng) ? r.lng : null,
     acc: Number(r.acc) || 0,
     place: String(r.place || '').slice(0, 120),
+    kind: r.kind === 'topup' ? 'topup' : 'expense',
     members: Array.isArray(r.members) ? r.members.map((x) => String(x).slice(0, 30)).slice(0, 50) : []
   };
 }
@@ -501,6 +571,7 @@ function render() {
 
   renderMap(sorted);
   renderSettle();
+  renderFund();
 
   // day chips
   const chips = $('dayChips'); chips.replaceChildren();
@@ -536,10 +607,17 @@ function render() {
 function settle() {
   const bal = {};
   MEMBERS.forEach((n) => { bal[n] = {paid: 0, share: 0}; });
+  const usesFund = topups.length || rows.some((r) => r.paidBy === FUND);
+  if (usesFund) bal[FUND] = {paid: 0, share: 0};
+  topups.forEach((t) => {
+    const each = valIn(t, 'THB');
+    t.members.filter((n) => n in bal && n !== FUND).forEach((n) => { bal[n].paid += each; bal[FUND].share += each; });
+  });
   let skipped = 0;
   rows.forEach((r) => {
     const thb = valIn(r, 'THB');
-    const ms = r.members.filter((n) => n in bal);
+    let ms = r.members.filter((n) => n in bal && n !== FUND);
+    if (!ms.length && r.paidBy === FUND) ms = MEMBERS.slice();
     if (!ms.length || !(r.paidBy in bal) || !isFinite(thb)) { skipped++; return; }
     bal[r.paidBy].paid += thb;
     ms.forEach((n) => { bal[n].share += thb / ms.length; });
@@ -572,13 +650,13 @@ function renderSettle() {
   if (counted && !tx.length) box.append(el('div', 'empty', 'Everyone is square.'));
   tx.forEach((t) => {
     const row = el('div', 'tx');
-    row.append(el('span', 'from', t.from), el('span', 'arrow', 'pays'), el('span', 'to', t.to), el('span', 'v', money(thbToView(t.thb))));
+    row.append(el('span', 'from', t.from === FUND ? 'Fund leftover' : t.from), el('span', 'arrow', t.from === FUND ? 'back to' : t.to === FUND ? 'tops up' : 'pays'), el('span', 'to', t.to === FUND ? 'the fund' : t.to), el('span', 'v', money(thbToView(t.thb))));
     box.append(row);
   });
   Object.entries(bal).forEach(([n, b]) => {
     const tr = document.createElement('tr');
     const net = b.paid - b.share;
-    [n, money(thbToView(b.paid)), money(thbToView(b.share)), (net >= 0 ? '+' : '−') + money(thbToView(Math.abs(net)))].forEach((v, k) => {
+    [n === FUND ? 'Group fund (paid = spent, share = topped up)' : n, money(thbToView(b.paid)), money(thbToView(b.share)), (net >= 0 ? '+' : '−') + money(thbToView(Math.abs(net)))].forEach((v, k) => {
       const td = el('td', k ? 'r' : '', v); if (k === 3 && Math.abs(net) >= 0.5) td.classList.add(net > 0 ? 'pos' : 'neg'); tr.append(td);
     });
     body.append(tr);
@@ -588,8 +666,100 @@ function renderSettle() {
 }
 $('copySettle').addEventListener('click', async () => {
   const {tx} = settle();
-  const lines = ['Hat Yai trip: settle up'].concat(tx.map((t) => t.from + ' pays ' + t.to + ' ' + money(thbToView(t.thb)) + (view === 'MYR' ? '' : RATE ? ' (RM ' + fmt(t.thb / RATE) + ')' : '')));
+  const lines = ['Hat Yai trip: settle up'].concat(tx.map((t) => (t.from === FUND ? 'Fund leftover back to ' + t.to : t.to === FUND ? t.from + ' tops up the fund' : t.from + ' pays ' + t.to) + ' ' + money(thbToView(t.thb)) + (view === 'MYR' ? '' : RATE ? ' (RM ' + fmt(t.thb / RATE) + ')' : '')));
   try { await navigator.clipboard.writeText(lines.join('\n')); toast('Settle-up copied'); } catch (e) { toast('Couldn’t copy on this device'); }
+});
+
+// ---------- group fund ----------
+let tpEditing = null, tp = {cur: 'THB', who: new Set()};
+function fundTotals() {
+  const inThb = topups.reduce((s, t) => s + valIn(t, 'THB') * t.members.length, 0);
+  const outThb = rows.filter((r) => r.paidBy === FUND).reduce((s, r) => s + valIn(r, 'THB'), 0);
+  return {inThb, outThb, leftThb: inThb - outThb};
+}
+function renderFund() {
+  const {inThb, outThb, leftThb} = fundTotals();
+  $('fIn').textContent = money(thbToView(inThb));
+  $('fOut').textContent = money(thbToView(outThb));
+  const left = $('fLeft');
+  left.textContent = (leftThb < 0 ? '−' : '') + money(thbToView(Math.abs(leftThb)));
+  left.className = 'v ' + (leftThb < 0 || (inThb && leftThb < inThb * 0.15) ? 'low' : 'left');
+  $('fundFill').style.width = (inThb ? Math.max(0, Math.min(100, leftThb / inThb * 100)) : 0) + '%';
+  $('fundNote').textContent = !inThb && !outThb ? 'Pool money together, then choose “Group fund” as the payer. Spending comes straight out of the pool.'
+    : leftThb < 0 ? 'The fund is overspent. Top it up, or Settle up shows who covers it.'
+    : 'Choose “Group fund” as the payer to spend from it. Any leftover is shared back in Settle up.';
+  const list = $('fundList'); list.replaceChildren();
+  $('fundDetails').hidden = !topups.length;
+  topups.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).forEach((t) => {
+    const b = el('button', 'topup'); b.type = 'button';
+    const mid = el('div'); mid.append(el('div', '', t.members.join(', ') + ' · ' + origText(t) + ' each'), el('div', 'meta', dayInfo(t.date).short + (t.description ? ' · ' + t.description : '')));
+    b.append(mid, el('div', 'a', '+' + money(thbToView(valIn(t, 'THB') * t.members.length))));
+    b.addEventListener('click', () => openTopup(t));
+    list.append(b);
+  });
+}
+function drawTopup() {
+  document.querySelectorAll('[data-tcur]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tcur === tp.cur)));
+  $('tpSym').textContent = tp.cur === 'MYR' ? 'RM' : '฿';
+  const box = $('tpWho'); box.replaceChildren();
+  if (!MEMBERS.length) box.append(el('span', 'hint', 'Add your group’s names in Settings first.'));
+  MEMBERS.forEach((n) => {
+    const b = el('button', 'chip', n); b.type = 'button'; b.setAttribute('aria-pressed', String(tp.who.has(n)));
+    b.addEventListener('click', () => { if (tp.who.has(n)) tp.who.delete(n); else tp.who.add(n); drawTopup(); });
+    box.append(b);
+  });
+  const a = parseFloat($('tpAmount').value.replace(/,/g, ''));
+  $('tpTotal').textContent = a > 0 && tp.who.size ? tp.who.size + ' × ' + sym(tp.cur) + fmt(a) + ' = ' + sym(tp.cur) + fmt(a * tp.who.size) + ' into the fund' : '';
+}
+function openTopup(t) {
+  tpEditing = t || null;
+  $('tpTitle').textContent = t ? 'Edit top-up' : 'Top up the group fund';
+  $('tpAmount').value = t ? String(t.amount) : '';
+  $('tpNote').value = t ? t.description : '';
+  tp.cur = t ? t.currency : 'THB';
+  tp.who = new Set(t ? t.members : MEMBERS);
+  $('tpErr').textContent = '';
+  const d = $('tpDel'); d.hidden = !t; d.classList.remove('armed'); d.textContent = 'Delete';
+  drawTopup();
+  $('tpScrim').hidden = false;
+  setTimeout(() => $('tpAmount').focus(), 30);
+}
+const closeTopup = () => { $('tpScrim').hidden = true; tpEditing = null; };
+$('topupBtn').addEventListener('click', () => openTopup(null));
+$('tpCancel').addEventListener('click', closeTopup);
+$('tpScrim').addEventListener('click', (e) => { if (e.target === $('tpScrim')) closeTopup(); });
+$('tpAmount').addEventListener('input', drawTopup);
+$('tpAll').addEventListener('click', () => { tp.who = new Set(MEMBERS); drawTopup(); });
+$('tpNone').addEventListener('click', () => { tp.who = new Set(); drawTopup(); });
+document.querySelectorAll('[data-tcur]').forEach((b) => b.addEventListener('click', () => { tp.cur = b.dataset.tcur; drawTopup(); }));
+$('tpForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const amount = parseFloat($('tpAmount').value.replace(/,/g, ''));
+  if (!(amount > 0)) { $('tpErr').textContent = 'Enter how much each person puts in.'; $('tpAmount').focus(); return; }
+  if (!tp.who.size) { $('tpErr').textContent = 'Tick who put money in.'; return; }
+  if (tp.cur === 'MYR' && !RATE) { $('tpErr').textContent = 'Set the exchange rate in Settings first.'; return; }
+  const data = {kind: 'topup', date: tpEditing ? tpEditing.date : (TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d), description: $('tpNote').value.trim().slice(0, 200),
+    category: 'Other', amount: Math.round(amount * 100) / 100, people: tp.who.size, members: [...tp.who], paidBy: '', currency: tp.cur, fx: RATE || 0, lat: null, lng: null, acc: 0, place: ''};
+  const btn = $('tpSave'); btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const wasEdit = !!tpEditing;
+    const res = wasEdit ? await api('PUT', '/api/expenses?id=' + encodeURIComponent(tpEditing.id), data) : await api('POST', '/api/expenses', data);
+    const item = clean(res.item);
+    topups = topups.filter((t) => t.id !== item.id).concat(item);
+    closeTopup(); render(); toast(wasEdit ? 'Top-up updated' : 'Fund topped up');
+    load();
+  } catch (err) { $('tpErr').textContent = err.message; }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
+});
+let tpDelTimer;
+$('tpDel').addEventListener('click', async () => {
+  const b = $('tpDel');
+  if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Tap again to delete'; clearTimeout(tpDelTimer); tpDelTimer = setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Delete'; }, 3500); return; }
+  if (!tpEditing) return;
+  b.disabled = true;
+  try { const id = tpEditing.id; await api('DELETE', '/api/expenses?id=' + encodeURIComponent(id)); topups = topups.filter((t) => t.id !== id); closeTopup(); render(); toast('Top-up deleted'); load(); }
+  catch (err) { $('tpErr').textContent = err.message; }
+  finally { b.disabled = false; }
 });
 
 // ---------- export ----------
@@ -620,6 +790,14 @@ function drawMembers() {
   ['fPeople', 'pMinus', 'pPlus'].forEach((id) => { $(id).disabled = k > 0; });
   document.querySelectorAll('[data-p]').forEach((b) => { b.disabled = k > 0; });
   const pb = $('fPayers'); pb.replaceChildren();
+  const fb = el('button', 'chip fund', FUND); fb.type = 'button'; fb.setAttribute('aria-pressed', String($('fPaid').value.trim() === FUND));
+  fb.addEventListener('click', () => {
+    const on = $('fPaid').value.trim() !== FUND;
+    $('fPaid').value = on ? FUND : '';
+    if (on && !form.members.size) form.members = new Set(MEMBERS);
+    drawMembers();
+  });
+  pb.append(fb);
   MEMBERS.forEach((n) => {
     const b = el('button', 'chip', n); b.type = 'button'; b.setAttribute('aria-pressed', String($('fPaid').value.trim() === n));
     b.addEventListener('click', () => { $('fPaid').value = $('fPaid').value.trim() === n ? '' : n; drawMembers(); });
@@ -903,7 +1081,7 @@ $('pPlus').addEventListener('click', () => { $('fPeople').value = String((parseI
 document.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { $('fPeople').value = b.dataset.p; updateEach(); }));
 $('cancelBtn').addEventListener('click', closeSheet);
 $('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) closeSheet(); });
-document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('setScrim').hidden) closeSettings(); else if (!$('scrim').hidden) closeSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('tpScrim').hidden) closeTopup(); else if (!$('setScrim').hidden) closeSettings(); else if (!$('scrim').hidden) closeSheet(); });
 $('addBtn').addEventListener('click', () => openSheet(null));
 
 async function api(method, path, body) {
@@ -977,7 +1155,9 @@ async function load() {
   loading = true;
   try {
     const j = await api('GET', '/api/expenses');
-    rows = (j.items || []).map(clean);
+    const all = (j.items || []).map(clean);
+    rows = all.filter((r) => r.kind !== 'topup');
+    topups = all.filter((r) => r.kind === 'topup');
     loaded = true;
     setStatus('');
     render();
@@ -991,7 +1171,7 @@ render();
 load();
 loadRate();
 // pick up expenses friends add: refresh every 15 s while the page is open, and when it comes back into view
-setInterval(() => { if (document.visibilityState === 'visible' && $('scrim').hidden && $('setScrim').hidden) { load(); loadRate(); } }, 15000);
+setInterval(() => { if (document.visibilityState === 'visible' && $('scrim').hidden && $('setScrim').hidden && $('tpScrim').hidden) { load(); loadRate(); } }, 15000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 </script>
 </body>
