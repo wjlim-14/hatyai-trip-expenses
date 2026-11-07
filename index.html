@@ -142,6 +142,12 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 .loc a{color:var(--accent);font-weight:600}
 .btn.sm{padding:6px 12px;font-size:13px}
 .pin{display:inline-block;width:8px;height:8px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:currentColor;margin:0 3px 0 1px;vertical-align:1px}
+#fMap{height:190px;border-radius:10px;isolation:isolate;background:var(--bg);border:1px solid var(--line)}
+#fMap[hidden]{display:none}
+.near{display:flex;gap:6px;flex-wrap:wrap}
+.near .chip{font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.near .chip small{color:var(--muted);font-weight:500;margin-left:4px}
+.hint{font-size:12.5px;color:var(--muted)}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -258,8 +264,13 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
         <button class="btn sm" type="button" id="fLocBtn">Use current location</button>
         <button class="btn sm" type="button" id="fLocClear" hidden>Remove</button>
       </div>
-      <label class="flabel" for="fPlace">Place name (optional)</label>
-      <input class="inp" id="fPlace" autocomplete="off" placeholder="e.g. Central Festival Hat Yai">
+      <div id="fMap" hidden></div>
+      <span class="hint" id="fMapHint" hidden>GPS is approximate. Drag the pin to the right spot if needed.</span>
+      <span class="flabel" id="nearLbl" hidden>Nearby places: tap the right one</span>
+      <div class="near" id="fNear" role="group" aria-labelledby="nearLbl"></div>
+      <label class="flabel" for="fPlace">Place name: confirm or type the store</label>
+      <input class="inp" id="fPlace" list="places" autocomplete="off" placeholder="e.g. Central Festival Hat Yai">
+      <datalist id="places"></datalist>
     </div>
     <div class="err" id="fErr" role="alert"></div>
     <div class="sheet-actions">
@@ -493,19 +504,39 @@ function renderMap(sorted) {
 }
 
 // ---------- location ----------
-let locReq = 0;
+// GPS gives an approximate spot; the user confirms the store from nearby places, by dragging the pin, or by typing.
+let locReq = 0, fMap = null, fMarker = null, approxName = '';
 function setLoc(state, msg) {
   const t = $('fLocText');
   t.className = 'ltext' + (state === 'got' ? ' ok' : state === 'bad' ? ' bad' : '');
   t.replaceChildren();
   if (state === 'got' && form.loc) {
-    t.append(document.createTextNode('Pinned' + (form.loc.acc ? ' · within ' + form.loc.acc + ' m' : '') + ' · '));
+    t.append(document.createTextNode((form.loc.moved ? 'Pin set by hand' : 'Approximate' + (form.loc.acc ? ', within ' + form.loc.acc + ' m' : '')) + ' · '));
     const a = el('a', '', 'View'); a.href = mapsLink(form.loc); a.target = '_blank'; a.rel = 'noopener'; t.append(a);
   } else t.textContent = msg;
-  $('fLocBtn').textContent = state === 'got' ? 'Update' : state === 'bad' ? 'Try again' : 'Use current location';
+  $('fLocBtn').textContent = state === 'got' ? 'Re-pin here' : state === 'bad' ? 'Try again' : 'Use current location';
   $('fLocBtn').disabled = state === 'getting';
   $('fLocClear').hidden = state !== 'got';
+  const show = state === 'got' && !!window.L;
+  $('fMap').hidden = !show; $('fMapHint').hidden = !show;
+  if (state !== 'got') { $('fNear').replaceChildren(); $('nearLbl').hidden = true; }
+  if (show) drawFormMap();
 }
+function drawFormMap() {
+  if (!fMap) {
+    fMap = L.map('fMap', {scrollWheelZoom: false, zoomControl: true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 20, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap'}).addTo(fMap);
+    fMarker = L.marker([0, 0], {draggable: true, autoPan: true}).addTo(fMap);
+    fMarker.on('dragend', () => {
+      const p = fMarker.getLatLng();
+      form.loc = {lat: Math.round(p.lat * 1e6) / 1e6, lng: Math.round(p.lng * 1e6) / 1e6, acc: 0, moved: true};
+      setLoc('got'); findNearby(form.loc.lat, form.loc.lng, ++locReq);
+    });
+  }
+  fMarker.setLatLng([form.loc.lat, form.loc.lng]);
+  setTimeout(() => { fMap.invalidateSize(); fMap.setView([form.loc.lat, form.loc.lng], 18); }, 30);
+}
+const distM = (a, b, c, d) => { const R = 6371000, t = Math.PI / 180, x = (d - b) * t * Math.cos((a + c) / 2 * t), y = (c - a) * t; return Math.sqrt(x * x + y * y) * R; };
 async function placeName(lat, lng) {
   try {
     const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=en&lat=' + lat + '&lon=' + lng, {signal: AbortSignal.timeout(6000)});
@@ -514,24 +545,68 @@ async function placeName(lat, lng) {
     return String(j.name || parts.slice(0, 2).join(', ')).slice(0, 120);
   } catch (e) { return ''; }
 }
+async function nearbyPlaces(lat, lng) {
+  const q = '[out:json][timeout:8];(nwr(around:120,' + lat + ',' + lng + ')[name][~"^(shop|amenity|tourism|leisure|craft)$"~"."];);out center 60;';
+  try {
+    const r = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q), {signal: AbortSignal.timeout(9000)});
+    const j = await r.json();
+    const seen = new Set();
+    return (j.elements || []).map((e) => {
+      const t = e.tags || {}; const la = e.lat ?? (e.center && e.center.lat); const lo = e.lon ?? (e.center && e.center.lon);
+      const name = String(t['name:en'] || t.name || '').slice(0, 120);
+      return {name, lat: la, lng: lo, d: la ? distM(lat, lng, la, lo) : 999};
+    }).filter((x) => x.name && x.lat && !seen.has(x.name) && seen.add(x.name)).sort((a, b) => a.d - b.d).slice(0, 12);
+  } catch (e) { return []; }
+}
+function pastPlaces() {
+  const seen = new Set();
+  return rows.filter((r) => r.place && r.lat !== null).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((r) => !seen.has(r.place) && seen.add(r.place));
+}
+async function findNearby(lat, lng, my) {
+  const box = $('fNear');
+  $('nearLbl').hidden = false;
+  box.replaceChildren(el('span', 'hint', 'Looking for nearby places…'));
+  const [osm, approx] = await Promise.all([nearbyPlaces(lat, lng), placeName(lat, lng)]);
+  if (my !== locReq) return;
+  approxName = approx;
+  const mine = pastPlaces().map((r) => ({name: r.place, lat: r.lat, lng: r.lng, d: distM(lat, lng, r.lat, r.lng), past: true})).filter((x) => x.d < 300);
+  const list = [];
+  const add = (x) => { if (x.name && !list.some((y) => y.name === x.name)) list.push(x); };
+  mine.slice(0, 4).forEach(add);
+  osm.forEach(add);
+  if (approx) add({name: approx, lat, lng, d: 0, area: true});
+  box.replaceChildren();
+  if (!list.length) { box.append(el('span', 'hint', 'No named places found nearby. Type the store name below.')); return; }
+  list.slice(0, 14).forEach((x) => {
+    const b = el('button', 'chip', x.name); b.type = 'button';
+    b.setAttribute('aria-pressed', String($('fPlace').value.trim() === x.name));
+    b.append(el('small', '', x.past ? 'used before' : x.area ? 'area' : Math.round(x.d) + ' m'));
+    b.addEventListener('click', () => {
+      $('fPlace').value = x.name;
+      if (!x.area && x.lat) { form.loc = {lat: Math.round(x.lat * 1e6) / 1e6, lng: Math.round(x.lng * 1e6) / 1e6, acc: 0, moved: true}; setLoc('got'); }
+      box.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+    });
+    box.append(b);
+  });
+}
 function captureLocation() {
   const my = ++locReq;
   if (!navigator.geolocation) { form.loc = null; setLoc('bad', 'This browser can’t share location.'); return; }
   setLoc('getting', 'Getting your location…');
-  navigator.geolocation.getCurrentPosition(async (p) => {
+  navigator.geolocation.getCurrentPosition((p) => {
     if (my !== locReq) return;
     form.loc = {lat: Math.round(p.coords.latitude * 1e6) / 1e6, lng: Math.round(p.coords.longitude * 1e6) / 1e6, acc: Math.round(p.coords.accuracy || 0)};
     setLoc('got');
-    const name = await placeName(form.loc.lat, form.loc.lng);
-    if (my === locReq && name && !$('fPlace').value.trim()) $('fPlace').value = name;
+    findNearby(form.loc.lat, form.loc.lng, my);
   }, (err) => {
     if (my !== locReq) return;
     form.loc = null;
     setLoc('bad', err.code === 1 ? 'Location is blocked. Allow location for this site in your browser settings, then try again.' : 'Couldn’t get your location.');
-  }, {enableHighAccuracy: true, timeout: 15000, maximumAge: 60000});
+  }, {enableHighAccuracy: true, timeout: 15000, maximumAge: 30000});
 }
-$('fLocBtn').addEventListener('click', () => { $('fPlace').value = ''; captureLocation(); });
-$('fLocClear').addEventListener('click', () => { locReq++; form.loc = null; $('fPlace').value = ''; setLoc('none', 'No location'); });
+$('fLocBtn').addEventListener('click', () => { captureLocation(); });
+$('fLocClear').addEventListener('click', () => { locReq++; form.loc = null; approxName = ''; $('fPlace').value = ''; setLoc('none', 'No location'); });
+$('fPlace').addEventListener('input', () => { $('fNear').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.firstChild.textContent === $('fPlace').value.trim()))); });
 
 // ---------- currency ----------
 document.querySelectorAll('[data-cur]').forEach((b) => b.addEventListener('click', () => {
@@ -607,12 +682,15 @@ function openSheet(r) {
   drawCur();
   locReq++;
   $('fPlace').value = r ? r.place : '';
-  if (r && r.lat !== null) { form.loc = {lat: r.lat, lng: r.lng, acc: r.acc}; setLoc('got'); }
+  approxName = '';
+  $('places').replaceChildren(...pastPlaces().map((x) => { const o = document.createElement('option'); o.value = x.place; return o; }));
+  if (r && r.lat !== null) { form.loc = {lat: r.lat, lng: r.lng, acc: r.acc, moved: !r.acc}; setLoc('got'); findNearby(r.lat, r.lng, ++locReq); }
   else { form.loc = null; setLoc('none', 'No location'); if (!r) captureLocation(); }
   $('fErr').textContent = '';
   const del = $('delBtn'); del.hidden = !r; del.classList.remove('armed'); del.textContent = 'Delete';
   drawFormChips(); updateEach();
   $('scrim').hidden = false;
+  if (form.loc && window.L) drawFormMap();
   setTimeout(() => $('fAmount').focus(), 30);
 }
 function closeSheet() { $('scrim').hidden = true; editing = null; locReq++; }
@@ -647,7 +725,7 @@ $('form').addEventListener('submit', async (e) => {
     amount: Math.round(amount * 100) / 100, people, paidBy: $('fPaid').value.trim().slice(0, 60),
     currency: form.cur, fx: Math.round(fx * 10000) / 10000,
     lat: form.loc ? form.loc.lat : null, lng: form.loc ? form.loc.lng : null, acc: form.loc ? form.loc.acc : 0,
-    place: $('fPlace').value.trim().slice(0, 120)
+    place: ($('fPlace').value.trim() || (form.loc ? approxName : '')).slice(0, 120)
   };
   const btn = $('saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try {
