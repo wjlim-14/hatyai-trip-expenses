@@ -148,6 +148,22 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 .near .chip{font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .near .chip small{color:var(--muted);font-weight:500;margin-left:4px}
 .hint{font-size:12.5px;color:var(--muted)}
+textarea.inp{min-height:110px;resize:vertical;line-height:1.5}
+.btn.sm[disabled],.sbtn[disabled],.chip[disabled]{opacity:.45;cursor:default}
+.tile .track{margin-top:8px;height:8px}
+.tx{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.tx .arrow{color:var(--muted)}
+.tx .to{font-weight:600}
+.tx .from{font-weight:600}
+.tx .v{font-family:var(--display);font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.btbl{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums;margin-top:8px}
+.btbl th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:6px 4px;border-bottom:1px solid var(--line)}
+.btbl td{padding:7px 4px;border-bottom:1px solid var(--line)}
+.btbl .r{text-align:right}
+.pos{color:var(--ok);font-weight:600}
+.neg{color:var(--bad);font-weight:600}
+details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);margin-top:10px}
+.memtools{display:flex;gap:6px}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -165,6 +181,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
         <button class="chip" type="button" data-cur="MYR">RM MYR</button>
       </div>
       <button class="btn" id="copyBtn" type="button">Copy summary</button>
+      <button class="btn" id="csvBtn" type="button">Export CSV</button>
       <button class="btn" id="setBtn" type="button">Settings</button>
     </div>
   </header>
@@ -174,7 +191,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
   <section class="tiles" aria-label="Totals">
     <div class="card tile hero"><div class="lbl">Total spent</div><div class="num" id="tTotal">฿0</div><div class="sub" id="tCount">No expenses yet</div></div>
     <div class="card tile"><div class="lbl">Per person</div><div class="num" id="tPer">฿0</div><div class="sub">If you're in every split</div></div>
-    <div class="card tile"><div class="lbl">Today</div><div class="num" id="tToday">฿0</div><div class="sub" id="tTodaySub">—</div></div>
+    <div class="card tile"><div class="lbl">Today</div><div class="num" id="tToday">฿0</div><div class="track" id="tBudgetBar" hidden><div class="fill" id="tBudgetFill"></div></div><div class="sub" id="tTodaySub">—</div></div>
     <div class="card tile"><div class="lbl">Biggest expense</div><div class="num" id="tBig">—</div><div class="sub" id="tBigSub">—</div></div>
   </section>
 
@@ -198,6 +215,19 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     <div class="cats" id="payerChart"></div>
   </section>
 
+  <section class="card" id="settleCard">
+    <div class="listhead">
+      <h2>Settle up</h2>
+      <button class="btn sm" id="copySettle" type="button" hidden>Copy</button>
+    </div>
+    <p class="note" id="settleNote">Add your group’s names in Settings. Then tick who shared each expense and who paid, and this shows who pays whom.</p>
+    <div id="settleTx"></div>
+    <details id="settleDetails" hidden>
+      <summary>Each person: paid, share and balance</summary>
+      <table class="btbl"><thead><tr><th>Name</th><th class="r">Paid</th><th class="r">Share</th><th class="r">Balance</th></tr></thead><tbody id="settleBody"></tbody></table>
+    </details>
+  </section>
+
   <section class="card" id="mapCard" hidden>
     <h2>Where you spent</h2>
     <p class="note">Expenses with a location pin. Tap a pin for details.</p>
@@ -218,6 +248,10 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 <div class="scrim" id="scrim" hidden>
   <form class="sheet" id="form" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" novalidate>
     <h3 id="sheetTitle">Add expense</h3>
+    <div class="field" id="quickField" hidden>
+      <span class="flabel" id="quickLbl">Repeat a recent one</span>
+      <div class="near" id="fQuick" role="group" aria-labelledby="quickLbl"></div>
+    </div>
     <div class="field">
       <label for="fAmount">Amount</label>
       <div class="amtrow">
@@ -243,6 +277,11 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     </div>
     <div class="field">
       <label for="fPeople">Split between</label>
+      <div class="near" id="fMembers" role="group" aria-label="Who shared this"></div>
+      <div class="memtools" id="fMemTools" hidden>
+        <button class="btn sm" type="button" id="mAll">Everyone</button>
+        <button class="btn sm" type="button" id="mNone">Clear</button>
+      </div>
       <div class="stepper">
         <button class="sbtn" type="button" id="pMinus" aria-label="One fewer person">−</button>
         <input class="inp" id="fPeople" inputmode="numeric" value="4">
@@ -253,7 +292,8 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
       </div>
     </div>
     <div class="field">
-      <label for="fPaid">Paid by (optional)</label>
+      <label for="fPaid">Paid by</label>
+      <div class="near" id="fPayers" role="group" aria-label="Who paid"></div>
       <input class="inp" id="fPaid" list="payers" autocomplete="off" placeholder="Who paid upfront">
       <datalist id="payers"></datalist>
     </div>
@@ -289,8 +329,18 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     <div class="field">
       <label for="sRate">Exchange rate: how many baht for RM 1</label>
       <div class="rateline"><span>1 RM = ฿</span><input class="inp" id="sRate" inputmode="decimal" autocomplete="off" placeholder="e.g. 7.5"></div>
-      <span class="each">Used to show every amount in baht or ringgit. Both phones share this setting.</span>
+      <span class="each">Used to show every amount in baht or ringgit.</span>
     </div>
+    <div class="field">
+      <label for="sMembers">Group members, one name per line</label>
+      <textarea class="inp" id="sMembers" autocomplete="off" placeholder="Wei Jie&#10;Ali&#10;Mei Ling"></textarea>
+      <span class="each">Used to tick who shared each expense and who paid. Add the others when they arrive.</span>
+    </div>
+    <div class="field">
+      <label for="sBudget">Daily budget for the group (฿, optional)</label>
+      <input class="inp" id="sBudget" inputmode="decimal" autocomplete="off" placeholder="e.g. 5000">
+    </div>
+    <span class="each">Both phones share these settings.</span>
     <div class="err" id="sErr" role="alert"></div>
     <div class="sheet-actions">
       <div class="right">
@@ -325,7 +375,10 @@ const fmt = (n) => (Math.round(n * 100) / 100).toLocaleString('en', {maximumFrac
 const baht = (n) => '฿' + fmt(n);
 const sym = (c) => (c === 'MYR' ? 'RM ' : '฿');
 const money = (n) => sym(view) + fmt(n);
+const thbToView = (thb) => (view === 'MYR' && RATE ? thb / RATE : thb);
 let RATE = null; // THB per 1 MYR, from Settings (shared)
+let MEMBERS = [];
+let BUDGET = null; // THB per day
 let view = 'THB';
 try { const v = localStorage.getItem('hy-view'); if (v === 'MYR' || v === 'THB') view = v; } catch (e) { /* storage unavailable */ }
 const rateFor = (r) => (RATE > 0 ? RATE : r.fx);
@@ -346,7 +399,7 @@ let canWrite = true;
 let loaded = false;
 let dayFilter = 'all';
 let editing = null;
-let form = {cat: 'Food', day: TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d, cur: 'THB', loc: null};
+let form = {cat: 'Food', day: TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d, cur: 'THB', loc: null, members: new Set()};
 
 function clean(r) {
   return {
@@ -363,7 +416,8 @@ function clean(r) {
     lat: typeof r.lat === 'number' && isFinite(r.lat) ? r.lat : null,
     lng: typeof r.lng === 'number' && isFinite(r.lng) ? r.lng : null,
     acc: Number(r.acc) || 0,
-    place: String(r.place || '').slice(0, 120)
+    place: String(r.place || '').slice(0, 120),
+    members: Array.isArray(r.members) ? r.members.map((x) => String(x).slice(0, 30)).slice(0, 50) : []
   };
 }
 
@@ -384,7 +438,14 @@ function render() {
   $('tPer').textContent = money(per);
   const today = sorted.filter((r) => r.date === todayBkk);
   $('tToday').textContent = money(today.reduce((s, r) => s + r.amount, 0));
-  $('tTodaySub').textContent = dayInfo(todayBkk).long + (today.length ? ' · ' + today.length + ' logged' : '');
+  const todayTotal = today.reduce((s, r) => s + r.amount, 0);
+  const budgetV = BUDGET ? thbToView(BUDGET) : 0;
+  $('tBudgetBar').hidden = !budgetV;
+  if (budgetV) {
+    const f = $('tBudgetFill'); f.style.width = Math.min(100, todayTotal / budgetV * 100) + '%';
+    f.style.background = todayTotal > budgetV ? 'var(--bad)' : todayTotal > budgetV * 0.8 ? 'var(--accent)' : 'var(--ok)';
+    $('tTodaySub').textContent = todayTotal > budgetV ? money(todayTotal - budgetV) + ' over the ' + money(budgetV) + ' budget' : money(budgetV - todayTotal) + ' left of ' + money(budgetV);
+  } else $('tTodaySub').textContent = dayInfo(todayBkk).long + (today.length ? ' · ' + today.length + ' logged' : '');
   const big = sorted.reduce((b, r) => (!b || r.amount > b.amount ? r : b), null);
   $('tBig').textContent = big ? money(big.amount) : '—';
   $('tBigSub').textContent = big ? big.description || big.category : 'Nothing yet';
@@ -439,6 +500,7 @@ function render() {
   const dlist = $('payers'); dlist.replaceChildren(...Object.keys(payers).map((p) => { const o = document.createElement('option'); o.value = p; return o; }));
 
   renderMap(sorted);
+  renderSettle();
 
   // day chips
   const chips = $('dayChips'); chips.replaceChildren();
@@ -461,12 +523,133 @@ function render() {
       const b = el('button', 'item'); b.type = 'button'; b.disabled = !canWrite;
       const c = catOf(r.category);
       const ic = el('div', 'icon', c.i); ic.style.background = c.c;
-      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', c.k + ' · split ' + r.people + (r.paidBy ? ' · paid by ' + r.paidBy : '') + (r.place ? ' · at ' + r.place : (r.lat !== null ? ' · pinned' : ''))));
+      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', c.k + ' · split ' + (r.members.length ? r.members.join(', ') : r.people) + (r.paidBy ? ' · paid by ' + r.paidBy : '') + (r.place ? ' · at ' + r.place : (r.lat !== null ? ' · pinned' : ''))));
       const amt = el('div', 'amt'); amt.append(el('div', 'a', money(r.amount)), el('div', 'e', (r.currency !== view ? 'paid ' + origText(r) + ' · ' : '') + money(r.amount / r.people) + ' each'));
       b.append(ic, mid, amt);
       if (canWrite) { b.setAttribute('aria-label', 'Edit ' + (r.description || c.k)); b.addEventListener('click', () => openSheet(r.orig)); }
       list.append(b);
     });
+  });
+}
+
+// ---------- settle up ----------
+function settle() {
+  const bal = {};
+  MEMBERS.forEach((n) => { bal[n] = {paid: 0, share: 0}; });
+  let skipped = 0;
+  rows.forEach((r) => {
+    const thb = valIn(r, 'THB');
+    const ms = r.members.filter((n) => n in bal);
+    if (!ms.length || !(r.paidBy in bal) || !isFinite(thb)) { skipped++; return; }
+    bal[r.paidBy].paid += thb;
+    ms.forEach((n) => { bal[n].share += thb / ms.length; });
+  });
+  const nets = Object.entries(bal).map(([n, b]) => ({n, net: b.paid - b.share}));
+  const debt = nets.filter((x) => x.net < -0.5).map((x) => ({n: x.n, a: -x.net})).sort((a, b) => b.a - a.a);
+  const cred = nets.filter((x) => x.net > 0.5).map((x) => ({n: x.n, a: x.net})).sort((a, b) => b.a - a.a);
+  const tx = [];
+  let i = 0, j = 0;
+  while (i < debt.length && j < cred.length) {
+    const m = Math.min(debt[i].a, cred[j].a);
+    tx.push({from: debt[i].n, to: cred[j].n, thb: m});
+    debt[i].a -= m; cred[j].a -= m;
+    if (debt[i].a < 0.5) i++;
+    if (cred[j].a < 0.5) j++;
+  }
+  return {bal, tx, skipped};
+}
+function renderSettle() {
+  const note = $('settleNote'), box = $('settleTx'), body = $('settleBody');
+  box.replaceChildren(); body.replaceChildren();
+  if (!MEMBERS.length) {
+    note.textContent = 'Add your group’s names in Settings. Then tick who shared each expense and who paid, and this shows who pays whom.';
+    $('copySettle').hidden = true; $('settleDetails').hidden = true; return;
+  }
+  const {bal, tx, skipped} = settle();
+  const counted = rows.length - skipped;
+  note.textContent = (counted ? 'Based on ' + counted + (counted === 1 ? ' expense' : ' expenses') + '.' : 'No expenses have names ticked yet.') +
+    (skipped ? ' ' + skipped + (skipped === 1 ? ' expense isn’t' : ' expenses aren’t') + ' counted yet: edit them to tick who shared it and who paid.' : '');
+  if (counted && !tx.length) box.append(el('div', 'empty', 'Everyone is square.'));
+  tx.forEach((t) => {
+    const row = el('div', 'tx');
+    row.append(el('span', 'from', t.from), el('span', 'arrow', 'pays'), el('span', 'to', t.to), el('span', 'v', money(thbToView(t.thb))));
+    box.append(row);
+  });
+  Object.entries(bal).forEach(([n, b]) => {
+    const tr = document.createElement('tr');
+    const net = b.paid - b.share;
+    [n, money(thbToView(b.paid)), money(thbToView(b.share)), (net >= 0 ? '+' : '−') + money(thbToView(Math.abs(net)))].forEach((v, k) => {
+      const td = el('td', k ? 'r' : '', v); if (k === 3 && Math.abs(net) >= 0.5) td.classList.add(net > 0 ? 'pos' : 'neg'); tr.append(td);
+    });
+    body.append(tr);
+  });
+  $('copySettle').hidden = !tx.length;
+  $('settleDetails').hidden = !counted;
+}
+$('copySettle').addEventListener('click', async () => {
+  const {tx} = settle();
+  const lines = ['Hat Yai trip: settle up'].concat(tx.map((t) => t.from + ' pays ' + t.to + ' ' + money(thbToView(t.thb)) + (view === 'MYR' ? '' : RATE ? ' (RM ' + fmt(t.thb / RATE) + ')' : '')));
+  try { await navigator.clipboard.writeText(lines.join('\n')); toast('Settle-up copied'); } catch (e) { toast('Couldn’t copy on this device'); }
+});
+
+// ---------- export ----------
+$('csvBtn').addEventListener('click', () => {
+  const q = (v) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const head = ['date', 'description', 'category', 'amount', 'currency', 'amount_thb', 'amount_myr', 'split_count', 'split_between', 'paid_by', 'place', 'lat', 'lng'];
+  const s = rows.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  const lines = [head.join(',')].concat(s.map((r) => {
+    const thb = valIn(r, 'THB'), myr = valIn(r, 'MYR');
+    return [r.date, r.description, r.category, r.amount, r.currency, isFinite(thb) ? thb.toFixed(2) : '', isFinite(myr) ? myr.toFixed(2) : '', r.people, r.members.join('; '), r.paidBy, r.place, r.lat ?? '', r.lng ?? ''].map(q).join(',');
+  }));
+  const blob = new Blob(['﻿' + lines.join('\n')], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'hatyai-trip-expenses.csv';
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+
+// ---------- members in the form ----------
+function drawMembers() {
+  const box = $('fMembers'); box.replaceChildren();
+  $('fMemTools').hidden = !MEMBERS.length;
+  MEMBERS.forEach((n) => {
+    const b = el('button', 'chip', n); b.type = 'button'; b.setAttribute('aria-pressed', String(form.members.has(n)));
+    b.addEventListener('click', () => { if (form.members.has(n)) form.members.delete(n); else form.members.add(n); drawMembers(); });
+    box.append(b);
+  });
+  const k = form.members.size;
+  if (k) $('fPeople').value = String(k);
+  ['fPeople', 'pMinus', 'pPlus'].forEach((id) => { $(id).disabled = k > 0; });
+  document.querySelectorAll('[data-p]').forEach((b) => { b.disabled = k > 0; });
+  const pb = $('fPayers'); pb.replaceChildren();
+  MEMBERS.forEach((n) => {
+    const b = el('button', 'chip', n); b.type = 'button'; b.setAttribute('aria-pressed', String($('fPaid').value.trim() === n));
+    b.addEventListener('click', () => { $('fPaid').value = $('fPaid').value.trim() === n ? '' : n; drawMembers(); });
+    pb.append(b);
+  });
+  updateEach();
+}
+$('mAll').addEventListener('click', () => { form.members = new Set(MEMBERS); drawMembers(); });
+$('mNone').addEventListener('click', () => { form.members = new Set(); drawMembers(); });
+$('fPaid').addEventListener('input', () => { $('fPayers').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.textContent === $('fPaid').value.trim()))); });
+
+// ---------- repeat a recent expense ----------
+function drawQuick() {
+  const seen = new Set();
+  const recent = rows.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((r) => r.description && !seen.has(r.description.toLowerCase()) && seen.add(r.description.toLowerCase())).slice(0, 6);
+  $('quickField').hidden = !recent.length || !!editing;
+  const box = $('fQuick'); box.replaceChildren();
+  recent.forEach((r) => {
+    const b = el('button', 'chip', r.description); b.type = 'button';
+    b.append(el('small', '', origText(r)));
+    b.addEventListener('click', () => {
+      $('fAmount').value = String(r.amount); $('fWhat').value = r.description;
+      form.cat = r.category; form.cur = r.currency;
+      form.members = new Set(r.members.filter((n) => MEMBERS.includes(n)));
+      $('fPeople').value = String(r.people); $('fPaid').value = r.paidBy;
+      drawFormChips(); drawCur(); drawMembers();
+      box.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+      $('fAmount').focus(); $('fAmount').select();
+    });
+    box.append(b);
   });
 }
 
@@ -625,12 +808,19 @@ function showRate() {
   if (!RATE && view === 'MYR') view = 'THB';
 }
 async function loadRate() {
-  try { const j = await api('GET', '/api/settings'); RATE = Number(j.rate) > 0 ? Number(j.rate) : null; }
+  try {
+    const j = await api('GET', '/api/settings');
+    RATE = Number(j.rate) > 0 ? Number(j.rate) : null;
+    MEMBERS = Array.isArray(j.members) ? j.members : [];
+    BUDGET = Number(j.dailyBudget) > 0 ? Number(j.dailyBudget) : null;
+  }
   catch (e) { /* keep the last known rate */ }
   showRate(); render();
 }
 function openSettings() {
   $('sRate').value = RATE ? String(RATE) : '';
+  $('sMembers').value = MEMBERS.join('\n');
+  $('sBudget').value = BUDGET ? String(BUDGET) : '';
   $('sErr').textContent = '';
   $('setScrim').hidden = false;
   setTimeout(() => $('sRate').focus(), 30);
@@ -641,10 +831,19 @@ $('sCancel').addEventListener('click', closeSettings);
 $('setScrim').addEventListener('click', (e) => { if (e.target === $('setScrim')) closeSettings(); });
 $('setForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const rate = parseFloat($('sRate').value.replace(/,/g, ''));
-  if (!(rate > 1 && rate < 50)) { $('sErr').textContent = 'Enter how many baht you get for RM 1, e.g. 7.5.'; return; }
+  const rateTxt = $('sRate').value.trim(), budTxt = $('sBudget').value.trim();
+  const rate = rateTxt ? parseFloat(rateTxt.replace(/,/g, '')) : null;
+  if (rateTxt && !(rate > 1 && rate < 50)) { $('sErr').textContent = 'Enter how many baht you get for RM 1, e.g. 7.5.'; $('sRate').focus(); return; }
+  const budget = budTxt ? parseFloat(budTxt.replace(/,/g, '')) : 0;
+  if (budTxt && !(budget > 0)) { $('sErr').textContent = 'Enter the daily budget in baht, or leave it empty.'; $('sBudget').focus(); return; }
+  const seenN = new Set();
+  const members = $('sMembers').value.split(/\n|,/).map((x) => x.trim().slice(0, 30)).filter((x) => x && !seenN.has(x.toLowerCase()) && seenN.add(x.toLowerCase())).slice(0, 50);
   const btn = $('sSave'); btn.disabled = true; btn.textContent = 'Saving…';
-  try { const j = await api('PUT', '/api/settings', {rate}); RATE = j.rate; showRate(); render(); closeSettings(); toast('Exchange rate saved'); }
+  try {
+    const j = await api('PUT', '/api/settings', {rate, members, dailyBudget: budget});
+    RATE = Number(j.rate) > 0 ? Number(j.rate) : null; MEMBERS = j.members || []; BUDGET = Number(j.dailyBudget) > 0 ? Number(j.dailyBudget) : null;
+    showRate(); render(); closeSettings(); toast('Settings saved');
+  }
   catch (err) { $('sErr').textContent = err.message; }
   finally { btn.disabled = false; btn.textContent = 'Save'; }
 });
@@ -675,6 +874,8 @@ function openSheet(r) {
   $('fWhat').value = r ? r.description : '';
   $('fPeople').value = String(r ? r.people : lastSplit());
   $('fPaid').value = r ? r.paidBy : '';
+  const prev = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).pop();
+  form.members = new Set((r ? r.members : prev ? prev.members : []).filter((n) => MEMBERS.includes(n)));
   form.cat = r ? r.category : 'Food';
   form.day = r ? r.date : (TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d);
   const lastCur = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).pop();
@@ -688,7 +889,7 @@ function openSheet(r) {
   else { form.loc = null; setLoc('none', 'No location'); if (!r) captureLocation(); }
   $('fErr').textContent = '';
   const del = $('delBtn'); del.hidden = !r; del.classList.remove('armed'); del.textContent = 'Delete';
-  drawFormChips(); updateEach();
+  drawFormChips(); drawMembers(); drawQuick();
   $('scrim').hidden = false;
   if (form.loc && window.L) drawFormMap();
   setTimeout(() => $('fAmount').focus(), 30);
@@ -722,7 +923,7 @@ $('form').addEventListener('submit', async (e) => {
   if (!(people >= 1)) { $('fErr').textContent = 'Split between at least 1 person.'; $('fPeople').focus(); return; }
   const data = {
     date: form.day, description: $('fWhat').value.trim().slice(0, 200), category: form.cat,
-    amount: Math.round(amount * 100) / 100, people, paidBy: $('fPaid').value.trim().slice(0, 60),
+    amount: Math.round(amount * 100) / 100, people: form.members.size || people, members: [...form.members], paidBy: $('fPaid').value.trim().slice(0, 60),
     currency: form.cur, fx: Math.round(fx * 10000) / 10000,
     lat: form.loc ? form.loc.lat : null, lng: form.loc ? form.loc.lng : null, acc: form.loc ? form.loc.acc : 0,
     place: ($('fPlace').value.trim() || (form.loc ? approxName : '')).slice(0, 120)

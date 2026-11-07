@@ -21,19 +21,30 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!redis) return res.status(503).json({ error: 'The database isn’t connected yet.' });
   try {
-    if (req.method === 'GET') {
-      const v = await redis.get(SETTINGS);
-      const o = typeof v === 'string' ? JSON.parse(v) : (v || {});
-      return res.status(200).json({ rate: Number(o.rate) > 0 ? Number(o.rate) : null, updatedAt: o.updatedAt || '' });
-    }
+    const read = async () => { const v = await redis.get(SETTINGS); return typeof v === 'string' ? JSON.parse(v) : (v || {}); };
+    const out = (o) => ({ rate: Number(o.rate) > 0 ? Number(o.rate) : null, members: Array.isArray(o.members) ? o.members : [], dailyBudget: Number(o.dailyBudget) > 0 ? Number(o.dailyBudget) : null, updatedAt: o.updatedAt || '' });
+    if (req.method === 'GET') return res.status(200).json(out(await read()));
     if (req.method === 'PUT') {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
-      const rate = Math.round(Number(body && body.rate) * 10000) / 10000;
-      if (!(rate > 1 && rate < 50)) return res.status(400).json({ error: 'Enter how many baht you get for RM 1, e.g. 7.5.' });
-      const o = { rate, updatedAt: new Date().toISOString() };
+      if (!body || typeof body !== 'object') return res.status(400).json({ error: 'Send the settings as JSON.' });
+      const o = await read();
+      if ('rate' in body && body.rate !== null && body.rate !== '') {
+        const rate = Math.round(Number(body.rate) * 10000) / 10000;
+        if (!(rate > 1 && rate < 50)) return res.status(400).json({ error: 'Enter how many baht you get for RM 1, e.g. 7.5.' });
+        o.rate = rate;
+      }
+      if (Array.isArray(body.members)) {
+        const seen = new Set();
+        o.members = body.members.map((x) => String(x).trim().slice(0, 30)).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).slice(0, 50);
+      }
+      if ('dailyBudget' in body) {
+        const b = Number(body.dailyBudget);
+        o.dailyBudget = b > 0 && b < 10000000 ? Math.round(b * 100) / 100 : 0;
+      }
+      o.updatedAt = new Date().toISOString();
       await redis.set(SETTINGS, JSON.stringify(o));
-      return res.status(200).json(o);
+      return res.status(200).json(out(o));
     }
     res.setHeader('Allow', 'GET, PUT');
     return res.status(405).json({ error: 'Method not allowed.' });

@@ -28,6 +28,12 @@ function parse(v) {
   return v && typeof v === 'object' ? v : null;
 }
 
+function names(v) {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set();
+  return v.map((x) => String(x).trim().slice(0, 30)).filter((x) => x && !seen.has(x) && seen.add(x)).slice(0, 50);
+}
+
 function loc(body) {
   const lat = Number(body.lat), lng = Number(body.lng);
   if (body.lat === null || body.lat === undefined || body.lat === '' || !isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
@@ -44,7 +50,8 @@ function loc(body) {
 function validate(body) {
   if (!body || typeof body !== 'object') return { error: 'Send the expense as JSON.' };
   const amount = Math.round(Number(body.amount) * 100) / 100;
-  const people = Math.round(Number(body.people));
+  const ticked = names(body.members).length;
+  const people = ticked || Math.round(Number(body.people));
   const date = String(body.date || '');
   if (!(amount > 0) || amount > 10000000) return { error: 'Enter an amount above 0.' };
   if (!(people >= 1) || people > 500) return { error: 'Split between 1 and 500 people.' };
@@ -57,6 +64,7 @@ function validate(body) {
       amount,
       people,
       paidBy: String(body.paidBy || '').trim().slice(0, 60),
+      members: names(body.members),
       currency: body.currency === 'MYR' ? 'MYR' : 'THB',
       fx: Number(body.fx) > 0.5 && Number(body.fx) < 100 ? Math.round(Number(body.fx) * 10000) / 10000 : 0,
       ...loc(body)
