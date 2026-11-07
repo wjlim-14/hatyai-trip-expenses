@@ -100,7 +100,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 .addbar{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 70%,transparent);display:flex;justify-content:center;pointer-events:none}
 .addbar .btn{pointer-events:auto;padding:14px 28px;font-size:16px;box-shadow:var(--shadow)}
 /* sheet */
-.scrim{position:fixed;inset:0;background:rgba(10,16,14,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.scrim{position:fixed;inset:0;z-index:20;background:rgba(10,16,14,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
 .scrim[hidden]{display:none}
 .sheet{background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));max-height:92%;overflow:auto;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
 @media (min-width:640px){.scrim{align-items:center}.sheet{border-radius:20px}}
@@ -151,7 +151,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     <div>
       <h1>Hat Yai trip expenses</h1>
       <div class="dates">Sat 7 – Mon 9 Nov 2026</div>
-      <div class="ratenote" id="rateNote">Loading today’s RM ↔ ฿ rate…</div>
+      <div class="ratenote" id="rateNote">Loading exchange rate…</div>
     </div>
     <div class="head-actions">
       <div class="chips curtoggle" id="curToggle" role="group" aria-label="Show amounts in">
@@ -159,6 +159,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
         <button class="chip" type="button" data-cur="MYR">RM MYR</button>
       </div>
       <button class="btn" id="copyBtn" type="button">Copy summary</button>
+      <button class="btn" id="setBtn" type="button">Settings</button>
     </div>
   </header>
 
@@ -220,7 +221,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
           <button class="chip" type="button" data-fcur="MYR">RM</button>
         </div>
       </div>
-      <div class="rateline"><label for="fRate">Rate: 1 RM = ฿</label><input class="inp" id="fRate" inputmode="decimal" autocomplete="off"><span id="fConv"></span></div>
+      <div class="rateline"><span id="fConv"></span></div>
     </div>
     <div class="field">
       <label for="fWhat">What was it?</label>
@@ -271,6 +272,24 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
   </form>
 </div>
 
+<div class="scrim" id="setScrim" hidden>
+  <form class="sheet" id="setForm" role="dialog" aria-modal="true" aria-labelledby="setTitle" novalidate>
+    <h3 id="setTitle">Settings</h3>
+    <div class="field">
+      <label for="sRate">Exchange rate: how many baht for RM 1</label>
+      <div class="rateline"><span>1 RM = ฿</span><input class="inp" id="sRate" inputmode="decimal" autocomplete="off" placeholder="e.g. 7.5"></div>
+      <span class="each">Used to show every amount in baht or ringgit. Both phones share this setting.</span>
+    </div>
+    <div class="err" id="sErr" role="alert"></div>
+    <div class="sheet-actions">
+      <div class="right">
+        <button class="btn" type="button" id="sCancel">Cancel</button>
+        <button class="btn primary" type="submit" id="sSave">Save</button>
+      </div>
+    </div>
+  </form>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -295,10 +314,10 @@ const fmt = (n) => (Math.round(n * 100) / 100).toLocaleString('en', {maximumFrac
 const baht = (n) => '฿' + fmt(n);
 const sym = (c) => (c === 'MYR' ? 'RM ' : '฿');
 const money = (n) => sym(view) + fmt(n);
-let RATE = null; // THB per 1 MYR, today's rate
+let RATE = null; // THB per 1 MYR, from Settings (shared)
 let view = 'THB';
 try { const v = localStorage.getItem('hy-view'); if (v === 'MYR' || v === 'THB') view = v; } catch (e) { /* storage unavailable */ }
-const rateFor = (r) => (r.fx > 0 ? r.fx : RATE);
+const rateFor = (r) => (RATE > 0 ? RATE : r.fx);
 // value of an expense in a given currency
 function valIn(r, cur) {
   if (r.currency === cur) return r.amount;
@@ -525,18 +544,35 @@ function drawCur() {
   $('fSym').textContent = form.cur === 'MYR' ? 'RM' : '฿';
 }
 document.querySelectorAll('[data-fcur]').forEach((b) => b.addEventListener('click', () => { form.cur = b.dataset.fcur; drawCur(); updateEach(); }));
-async function loadRate() {
-  try {
-    const j = await api('GET', '/api/rate');
-    RATE = Number(j.rate);
-    $('rateNote').textContent = '1 RM = ฿' + RATE.toFixed(4).replace(/0+$/, '') + ' · ' + (j.source || 'live rate') + (j.date ? ', ' + j.date : '');
-  } catch (e) {
-    const known = rows.filter((r) => r.fx > 0).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-    RATE = known ? known.fx : null;
-    $('rateNote').textContent = RATE ? 'Live rate unavailable · using 1 RM = ฿' + RATE + ' from the last expense' : 'Live rate unavailable · enter the rate when you add an RM expense';
-  }
-  render();
+function showRate() {
+  $('rateNote').textContent = RATE ? '1 RM = ฿' + fmt(RATE) + ' (change in Settings)' : 'Exchange rate not set. Tap Settings to add it.';
+  document.querySelectorAll('[data-cur="MYR"]').forEach((b) => { b.disabled = !RATE; });
+  if (!RATE && view === 'MYR') view = 'THB';
 }
+async function loadRate() {
+  try { const j = await api('GET', '/api/settings'); RATE = Number(j.rate) > 0 ? Number(j.rate) : null; }
+  catch (e) { /* keep the last known rate */ }
+  showRate(); render();
+}
+function openSettings() {
+  $('sRate').value = RATE ? String(RATE) : '';
+  $('sErr').textContent = '';
+  $('setScrim').hidden = false;
+  setTimeout(() => $('sRate').focus(), 30);
+}
+const closeSettings = () => { $('setScrim').hidden = true; };
+$('setBtn').addEventListener('click', openSettings);
+$('sCancel').addEventListener('click', closeSettings);
+$('setScrim').addEventListener('click', (e) => { if (e.target === $('setScrim')) closeSettings(); });
+$('setForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const rate = parseFloat($('sRate').value.replace(/,/g, ''));
+  if (!(rate > 1 && rate < 50)) { $('sErr').textContent = 'Enter how many baht you get for RM 1, e.g. 7.5.'; return; }
+  const btn = $('sSave'); btn.disabled = true; btn.textContent = 'Saving…';
+  try { const j = await api('PUT', '/api/settings', {rate}); RATE = j.rate; showRate(); render(); closeSettings(); toast('Exchange rate saved'); }
+  catch (err) { $('sErr').textContent = err.message; }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
+});
 
 // ---------- sheet ----------
 function drawFormChips() {
@@ -550,8 +586,8 @@ function updateEach() {
   const a = parseFloat($('fAmount').value.replace(/,/g, '')); const p = parseInt($('fPeople').value, 10);
   const s = sym(form.cur);
   $('fEach').textContent = a > 0 && p > 0 ? '= ' + s + fmt(a / p) + ' each' : '';
-  const fx = parseFloat($('fRate').value);
-  $('fConv').textContent = a > 0 && fx > 0 ? '≈ ' + (form.cur === 'MYR' ? baht(a * fx) : 'RM ' + fmt(a / fx)) : '';
+  const fx = RATE;
+  $('fConv').textContent = form.cur === 'MYR' && !fx ? 'Set the exchange rate in Settings to convert RM.' : a > 0 && fx > 0 ? '≈ ' + (form.cur === 'MYR' ? baht(a * fx) : 'RM ' + fmt(a / fx)) : '';
 }
 function lastSplit() {
   const s = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -568,7 +604,6 @@ function openSheet(r) {
   form.day = r ? r.date : (TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d);
   const lastCur = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).pop();
   form.cur = r ? r.currency : (lastCur ? lastCur.currency : 'THB');
-  $('fRate').value = r && r.fx > 0 ? String(r.fx) : (RATE ? String(Math.round(RATE * 10000) / 10000) : '');
   drawCur();
   locReq++;
   $('fPlace').value = r ? r.place : '';
@@ -584,13 +619,12 @@ function closeSheet() { $('scrim').hidden = true; editing = null; locReq++; }
 
 $('fAmount').addEventListener('input', updateEach);
 $('fPeople').addEventListener('input', updateEach);
-$('fRate').addEventListener('input', updateEach);
 $('pMinus').addEventListener('click', () => { $('fPeople').value = String(Math.max(1, (parseInt($('fPeople').value, 10) || 1) - 1)); updateEach(); });
 $('pPlus').addEventListener('click', () => { $('fPeople').value = String((parseInt($('fPeople').value, 10) || 0) + 1); updateEach(); });
 document.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { $('fPeople').value = b.dataset.p; updateEach(); }));
 $('cancelBtn').addEventListener('click', closeSheet);
 $('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) closeSheet(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('scrim').hidden) closeSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('setScrim').hidden) closeSettings(); else if (!$('scrim').hidden) closeSheet(); });
 $('addBtn').addEventListener('click', () => openSheet(null));
 
 async function api(method, path, body) {
@@ -604,9 +638,9 @@ $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const amount = parseFloat($('fAmount').value.replace(/,/g, ''));
   const people = parseInt($('fPeople').value, 10);
-  const fx = parseFloat($('fRate').value);
+  const fx = RATE || 0;
   if (!(amount > 0)) { $('fErr').textContent = 'Enter an amount above 0.'; $('fAmount').focus(); return; }
-  if (!(fx > 0)) { $('fErr').textContent = 'Enter the exchange rate (how many baht for RM 1).'; $('fRate').focus(); return; }
+  if (form.cur === 'MYR' && !(fx > 0)) { $('fErr').textContent = 'Set the exchange rate in Settings first, so RM can be converted to baht.'; return; }
   if (!(people >= 1)) { $('fErr').textContent = 'Split between at least 1 person.'; $('fPeople').focus(); return; }
   const data = {
     date: form.day, description: $('fWhat').value.trim().slice(0, 200), category: form.cat,
@@ -678,7 +712,7 @@ render();
 load();
 loadRate();
 // pick up expenses friends add: refresh every 15 s while the page is open, and when it comes back into view
-setInterval(() => { if (document.visibilityState === 'visible' && $('scrim').hidden) load(); }, 15000);
+setInterval(() => { if (document.visibilityState === 'visible' && $('scrim').hidden && $('setScrim').hidden) { load(); loadRate(); } }, 15000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 </script>
 </body>
