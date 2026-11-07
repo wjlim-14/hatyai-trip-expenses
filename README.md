@@ -8,6 +8,9 @@ A shared expense tracker for the Hat Yai trip (Sat 7 – Mon 9 Nov 2026). Anyone
   - `POST /api/expenses`: add
   - `PUT /api/expenses?id=…`: edit
   - `DELETE /api/expenses?id=…`: delete
+- `api/rate.js`: today's MYR → THB rate (Frankfurter/ECB, falling back to ExchangeRate-API), cached for an hour
+
+Each expense keeps the currency it was paid in (THB or RM), the rate used when it was saved, and an optional location pin (from the phone's GPS) with a place name looked up from OpenStreetMap. The page can show every total in baht or ringgit, and plots pinned expenses on a map.
 
 ## Deploy on Vercel
 

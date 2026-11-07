@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <style>
 :root{
   /* Layout: totals first, then day + category charts, then the day-grouped list; add button pinned to the bottom on phones */
@@ -122,6 +123,25 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 .err{color:var(--bad);font-size:13px;min-height:1em}
 .toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:30;box-shadow:var(--shadow)}
 .toast[hidden]{display:none}
+.curtoggle .chip{padding:7px 12px}
+.ratenote{font-size:12.5px;color:var(--muted);margin-top:2px}
+#map{height:300px;border-radius:10px;isolation:isolate;background:var(--bg)}
+.leaflet-popup-content{margin:10px 12px;font-family:var(--body);font-size:13px;line-height:1.4}
+.leaflet-popup-content b{display:block;font-size:14px}
+.leaflet-popup-content a{color:#0f766e;font-weight:600}
+.amtrow{display:flex;gap:8px;align-items:stretch}
+.amtrow .amtwrap{flex:1}
+.curpick{display:flex;flex-direction:column;gap:6px}
+.curpick .chip{flex:1;min-width:64px}
+.rateline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.rateline input{width:90px;padding:7px 10px}
+.loc{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}
+.loc .ltext{flex:1;min-width:150px;color:var(--muted)}
+.loc .ltext.ok{color:var(--ok);font-weight:600}
+.loc .ltext.bad{color:var(--bad)}
+.loc a{color:var(--accent);font-weight:600}
+.btn.sm{padding:6px 12px;font-size:13px}
+.pin{display:inline-block;width:8px;height:8px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:currentColor;margin:0 3px 0 1px;vertical-align:1px}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -130,9 +150,14 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
   <header>
     <div>
       <h1>Hat Yai trip expenses</h1>
-      <div class="dates">Sat 7 – Mon 9 Nov 2026 · amounts in Thai baht (฿)</div>
+      <div class="dates">Sat 7 – Mon 9 Nov 2026</div>
+      <div class="ratenote" id="rateNote">Loading today’s RM ↔ ฿ rate…</div>
     </div>
     <div class="head-actions">
+      <div class="chips curtoggle" id="curToggle" role="group" aria-label="Show amounts in">
+        <button class="chip" type="button" data-cur="THB">฿ THB</button>
+        <button class="chip" type="button" data-cur="MYR">RM MYR</button>
+      </div>
       <button class="btn" id="copyBtn" type="button">Copy summary</button>
     </div>
   </header>
@@ -149,7 +174,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
   <section class="grid2">
     <div class="card">
       <h2>Spending by day</h2>
-      <p class="note">Total baht spent each day</p>
+      <p class="note">Total spent each day</p>
       <div class="daychart" id="dayChart"></div>
       <div class="dlabels" id="dayLabels"></div>
     </div>
@@ -164,6 +189,12 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     <h2>Paid by</h2>
     <p class="note">How much each person has paid upfront so far</p>
     <div class="cats" id="payerChart"></div>
+  </section>
+
+  <section class="card" id="mapCard" hidden>
+    <h2>Where you spent</h2>
+    <p class="note">Expenses with a location pin. Tap a pin for details.</p>
+    <div id="map"></div>
   </section>
 
   <section class="card">
@@ -182,7 +213,14 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
     <h3 id="sheetTitle">Add expense</h3>
     <div class="field">
       <label for="fAmount">Amount</label>
-      <div class="amtwrap"><span>฿</span><input id="fAmount" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="amtrow">
+        <div class="amtwrap"><span id="fSym">฿</span><input id="fAmount" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="curpick" id="fCur" role="group" aria-label="Currency paid in">
+          <button class="chip" type="button" data-fcur="THB">THB</button>
+          <button class="chip" type="button" data-fcur="MYR">RM</button>
+        </div>
+      </div>
+      <div class="rateline"><label for="fRate">Rate: 1 RM = ฿</label><input class="inp" id="fRate" inputmode="decimal" autocomplete="off"><span id="fConv"></span></div>
     </div>
     <div class="field">
       <label for="fWhat">What was it?</label>
@@ -212,6 +250,16 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
       <input class="inp" id="fPaid" list="payers" autocomplete="off" placeholder="Who paid upfront">
       <datalist id="payers"></datalist>
     </div>
+    <div class="field">
+      <span class="flabel">Location</span>
+      <div class="loc">
+        <span class="ltext" id="fLocText">No location</span>
+        <button class="btn sm" type="button" id="fLocBtn">Use current location</button>
+        <button class="btn sm" type="button" id="fLocClear" hidden>Remove</button>
+      </div>
+      <label class="flabel" for="fPlace">Place name (optional)</label>
+      <input class="inp" id="fPlace" autocomplete="off" placeholder="e.g. Central Festival Hat Yai">
+    </div>
     <div class="err" id="fErr" role="alert"></div>
     <div class="sheet-actions">
       <button class="btn danger" type="button" id="delBtn" hidden>Delete</button>
@@ -225,6 +273,7 @@ h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0}
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
 const TRIP = [
   {d:'2026-11-07', short:'Sat 7', long:'Saturday 7 Nov'},
@@ -244,6 +293,20 @@ const catOf = (k) => CATS.find((c) => c.k === k) || CATS[CATS.length - 1];
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (Math.round(n * 100) / 100).toLocaleString('en', {maximumFractionDigits: 2});
 const baht = (n) => '฿' + fmt(n);
+const sym = (c) => (c === 'MYR' ? 'RM ' : '฿');
+const money = (n) => sym(view) + fmt(n);
+let RATE = null; // THB per 1 MYR, today's rate
+let view = 'THB';
+try { const v = localStorage.getItem('hy-view'); if (v === 'MYR' || v === 'THB') view = v; } catch (e) { /* storage unavailable */ }
+const rateFor = (r) => (r.fx > 0 ? r.fx : RATE);
+// value of an expense in a given currency
+function valIn(r, cur) {
+  if (r.currency === cur) return r.amount;
+  const fx = rateFor(r);
+  if (!(fx > 0)) return r.currency === 'THB' ? r.amount : NaN;
+  return cur === 'MYR' ? r.amount / fx : r.amount * fx;
+}
+const origText = (r) => sym(r.currency) + fmt(r.amount);
 const todayBkk = (() => { try { return new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date()); } catch (e) { return new Date().toISOString().slice(0, 10); } })();
 const dayInfo = (d) => TRIP.find((t) => t.d === d) || {d, short: d.slice(5), long: d};
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
@@ -253,7 +316,7 @@ let canWrite = true;
 let loaded = false;
 let dayFilter = 'all';
 let editing = null;
-let form = {cat: 'Food', day: TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d};
+let form = {cat: 'Food', day: TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d, cur: 'THB', loc: null};
 
 function clean(r) {
   return {
@@ -264,7 +327,13 @@ function clean(r) {
     amount: Number(r.amount) || 0,
     people: Math.max(1, Math.round(Number(r.people) || 1)),
     paidBy: String(r.paidBy || '').slice(0, 60),
-    createdAt: String(r.createdAt || '')
+    createdAt: String(r.createdAt || ''),
+    currency: r.currency === 'MYR' ? 'MYR' : 'THB',
+    fx: Number(r.fx) > 0 ? Number(r.fx) : 0,
+    lat: typeof r.lat === 'number' && isFinite(r.lat) ? r.lat : null,
+    lng: typeof r.lng === 'number' && isFinite(r.lng) ? r.lng : null,
+    acc: Number(r.acc) || 0,
+    place: String(r.place || '').slice(0, 120)
   };
 }
 
@@ -272,18 +341,22 @@ function setStatus(msg, warn) { const s = $('status'); s.textContent = msg; s.cl
 let toastT;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 1800); }
 
+function viewRows() {
+  return rows.map((r) => Object.assign({}, r, {orig: r, amount: valIn(r, view)})).filter((r) => isFinite(r.amount)).sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+}
 function render() {
-  const sorted = rows.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  document.querySelectorAll('[data-cur]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cur === view)));
+  const sorted = viewRows();
   const total = sorted.reduce((s, r) => s + r.amount, 0);
   const per = sorted.reduce((s, r) => s + r.amount / r.people, 0);
-  $('tTotal').textContent = baht(total);
+  $('tTotal').textContent = money(total);
   $('tCount').textContent = sorted.length ? sorted.length + (sorted.length === 1 ? ' expense' : ' expenses') : 'No expenses yet';
-  $('tPer').textContent = baht(per);
+  $('tPer').textContent = money(per);
   const today = sorted.filter((r) => r.date === todayBkk);
-  $('tToday').textContent = baht(today.reduce((s, r) => s + r.amount, 0));
+  $('tToday').textContent = money(today.reduce((s, r) => s + r.amount, 0));
   $('tTodaySub').textContent = dayInfo(todayBkk).long + (today.length ? ' · ' + today.length + ' logged' : '');
   const big = sorted.reduce((b, r) => (!b || r.amount > b.amount ? r : b), null);
-  $('tBig').textContent = big ? baht(big.amount) : '—';
+  $('tBig').textContent = big ? money(big.amount) : '—';
   $('tBigSub').textContent = big ? big.description || big.category : 'Nothing yet';
 
   // by day
@@ -296,7 +369,7 @@ function render() {
   dc.replaceChildren(); dl.replaceChildren();
   byDay.forEach((x) => {
     const col = el('div', 'dcol');
-    col.append(el('div', 'dval', x.amt ? baht(x.amt) : ''));
+    col.append(el('div', 'dval', x.amt ? money(x.amt) : ''));
     const bar = el('div', 'dbar' + (x.amt ? '' : ' zero'));
     bar.style.height = (x.amt / maxDay * 100 * 0.82) + '%';
     col.append(bar);
@@ -315,7 +388,7 @@ function render() {
     const row = el('div', 'crow');
     const name = el('div', 'cname'); const dot = el('span', 'dot'); dot.style.background = x.c.c; name.append(dot, el('span', '', x.c.k));
     const track = el('div', 'track'); const fill = el('div', 'fill'); fill.style.width = (x.amt / maxCat * 100) + '%'; fill.style.background = x.c.c; track.append(fill);
-    const v = el('div', 'cval'); v.append(el('b', '', baht(x.amt)), document.createTextNode(' · ' + Math.round(x.amt / (total || 1) * 100) + '%'));
+    const v = el('div', 'cval'); v.append(el('b', '', money(x.amt)), document.createTextNode(' · ' + Math.round(x.amt / (total || 1) * 100) + '%'));
     row.append(name, track, v); cc.append(row);
   });
 
@@ -330,10 +403,12 @@ function render() {
     const row = el('div', 'crow');
     const n = el('div', 'cname'); const dot = el('span', 'dot'); dot.style.background = 'var(--accent)'; n.append(dot, el('span', '', name));
     const track = el('div', 'track'); const fill = el('div', 'fill'); fill.style.width = (amt / maxP * 100) + '%'; fill.style.background = 'var(--accent)'; track.append(fill);
-    const v = el('div', 'cval'); v.append(el('b', '', baht(amt)));
+    const v = el('div', 'cval'); v.append(el('b', '', money(amt)));
     row.append(n, track, v); pc.append(row);
   });
   const dlist = $('payers'); dlist.replaceChildren(...Object.keys(payers).map((p) => { const o = document.createElement('option'); o.value = p; return o; }));
+
+  renderMap(sorted);
 
   // day chips
   const chips = $('dayChips'); chips.replaceChildren();
@@ -350,19 +425,117 @@ function render() {
   const groups = [];
   shown.forEach((r) => { let g = groups.find((x) => x.d === r.date); if (!g) { g = {d: r.date, items: []}; groups.push(g); } g.items.push(r); });
   groups.reverse().forEach((g) => {
-    const h = el('div', 'dayhead'); h.append(el('span', '', dayInfo(g.d).long), el('span', '', baht(g.items.reduce((s, r) => s + r.amount, 0))));
+    const h = el('div', 'dayhead'); h.append(el('span', '', dayInfo(g.d).long), el('span', '', money(g.items.reduce((s, r) => s + r.amount, 0))));
     list.append(h);
     g.items.slice().reverse().forEach((r) => {
       const b = el('button', 'item'); b.type = 'button'; b.disabled = !canWrite;
       const c = catOf(r.category);
       const ic = el('div', 'icon', c.i); ic.style.background = c.c;
-      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', c.k + ' · split ' + r.people + (r.paidBy ? ' · paid by ' + r.paidBy : '')));
-      const amt = el('div', 'amt'); amt.append(el('div', 'a', baht(r.amount)), el('div', 'e', baht(r.amount / r.people) + ' each'));
+      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', c.k + ' · split ' + r.people + (r.paidBy ? ' · paid by ' + r.paidBy : '') + (r.place ? ' · at ' + r.place : (r.lat !== null ? ' · pinned' : ''))));
+      const amt = el('div', 'amt'); amt.append(el('div', 'a', money(r.amount)), el('div', 'e', (r.currency !== view ? 'paid ' + origText(r) + ' · ' : '') + money(r.amount / r.people) + ' each'));
       b.append(ic, mid, amt);
-      if (canWrite) { b.setAttribute('aria-label', 'Edit ' + (r.description || c.k)); b.addEventListener('click', () => openSheet(r)); }
+      if (canWrite) { b.setAttribute('aria-label', 'Edit ' + (r.description || c.k)); b.addEventListener('click', () => openSheet(r.orig)); }
       list.append(b);
     });
   });
+}
+
+// ---------- map ----------
+let map = null, pinLayer = null, lastBounds = '';
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#d4740f';
+const mapsLink = (r) => 'https://www.google.com/maps/search/?api=1&query=' + r.lat + ',' + r.lng;
+function renderMap(sorted) {
+  const pts = sorted.filter((r) => r.lat !== null && r.lng !== null);
+  $('mapCard').hidden = !pts.length;
+  if (!pts.length || !window.L) return;
+  if (!map) {
+    map = L.map('map', {scrollWheelZoom: false, tap: true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+    pinLayer = L.layerGroup().addTo(map);
+  }
+  pinLayer.clearLayers();
+  const bounds = [];
+  pts.forEach((r) => {
+    const c = catOf(r.category);
+    const m = L.circleMarker([r.lat, r.lng], {radius: 9, color: '#ffffff', weight: 2, fillColor: cssVar(c.c.slice(4, -1)), fillOpacity: 0.95});
+    const box = document.createElement('div');
+    box.append(el('b', '', r.description || c.k), el('div', '', money(r.amount) + (r.currency !== view ? ' (paid ' + origText(r) + ')' : '') + ' · ' + dayInfo(r.date).short), el('div', '', r.place || 'Pinned location'));
+    const a = el('a', '', 'Open in Google Maps'); a.href = mapsLink(r); a.target = '_blank'; a.rel = 'noopener';
+    box.append(a);
+    m.bindPopup(box);
+    pinLayer.addLayer(m);
+    bounds.push([r.lat, r.lng]);
+  });
+  setTimeout(() => {
+    map.invalidateSize();
+    const key = JSON.stringify(bounds);
+    if (key !== lastBounds) { lastBounds = key; if (bounds.length === 1) map.setView(bounds[0], 16); else map.fitBounds(bounds, {padding: [30, 30], maxZoom: 16}); }
+  }, 0);
+}
+
+// ---------- location ----------
+let locReq = 0;
+function setLoc(state, msg) {
+  const t = $('fLocText');
+  t.className = 'ltext' + (state === 'got' ? ' ok' : state === 'bad' ? ' bad' : '');
+  t.replaceChildren();
+  if (state === 'got' && form.loc) {
+    t.append(document.createTextNode('Pinned' + (form.loc.acc ? ' · within ' + form.loc.acc + ' m' : '') + ' · '));
+    const a = el('a', '', 'View'); a.href = mapsLink(form.loc); a.target = '_blank'; a.rel = 'noopener'; t.append(a);
+  } else t.textContent = msg;
+  $('fLocBtn').textContent = state === 'got' ? 'Update' : state === 'bad' ? 'Try again' : 'Use current location';
+  $('fLocBtn').disabled = state === 'getting';
+  $('fLocClear').hidden = state !== 'got';
+}
+async function placeName(lat, lng) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=en&lat=' + lat + '&lon=' + lng, {signal: AbortSignal.timeout(6000)});
+    const j = await r.json();
+    const parts = String(j.display_name || '').split(',').map((x) => x.trim()).filter(Boolean);
+    return String(j.name || parts.slice(0, 2).join(', ')).slice(0, 120);
+  } catch (e) { return ''; }
+}
+function captureLocation() {
+  const my = ++locReq;
+  if (!navigator.geolocation) { form.loc = null; setLoc('bad', 'This browser can’t share location.'); return; }
+  setLoc('getting', 'Getting your location…');
+  navigator.geolocation.getCurrentPosition(async (p) => {
+    if (my !== locReq) return;
+    form.loc = {lat: Math.round(p.coords.latitude * 1e6) / 1e6, lng: Math.round(p.coords.longitude * 1e6) / 1e6, acc: Math.round(p.coords.accuracy || 0)};
+    setLoc('got');
+    const name = await placeName(form.loc.lat, form.loc.lng);
+    if (my === locReq && name && !$('fPlace').value.trim()) $('fPlace').value = name;
+  }, (err) => {
+    if (my !== locReq) return;
+    form.loc = null;
+    setLoc('bad', err.code === 1 ? 'Location is blocked. Allow location for this site in your browser settings, then try again.' : 'Couldn’t get your location.');
+  }, {enableHighAccuracy: true, timeout: 15000, maximumAge: 60000});
+}
+$('fLocBtn').addEventListener('click', () => { $('fPlace').value = ''; captureLocation(); });
+$('fLocClear').addEventListener('click', () => { locReq++; form.loc = null; $('fPlace').value = ''; setLoc('none', 'No location'); });
+
+// ---------- currency ----------
+document.querySelectorAll('[data-cur]').forEach((b) => b.addEventListener('click', () => {
+  view = b.dataset.cur;
+  try { localStorage.setItem('hy-view', view); } catch (e) { /* storage unavailable */ }
+  render();
+}));
+function drawCur() {
+  document.querySelectorAll('[data-fcur]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fcur === form.cur)));
+  $('fSym').textContent = form.cur === 'MYR' ? 'RM' : '฿';
+}
+document.querySelectorAll('[data-fcur]').forEach((b) => b.addEventListener('click', () => { form.cur = b.dataset.fcur; drawCur(); updateEach(); }));
+async function loadRate() {
+  try {
+    const j = await api('GET', '/api/rate');
+    RATE = Number(j.rate);
+    $('rateNote').textContent = '1 RM = ฿' + RATE.toFixed(4).replace(/0+$/, '') + ' · ' + (j.source || 'live rate') + (j.date ? ', ' + j.date : '');
+  } catch (e) {
+    const known = rows.filter((r) => r.fx > 0).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    RATE = known ? known.fx : null;
+    $('rateNote').textContent = RATE ? 'Live rate unavailable · using 1 RM = ฿' + RATE + ' from the last expense' : 'Live rate unavailable · enter the rate when you add an RM expense';
+  }
+  render();
 }
 
 // ---------- sheet ----------
@@ -375,7 +548,10 @@ function drawFormChips() {
 }
 function updateEach() {
   const a = parseFloat($('fAmount').value.replace(/,/g, '')); const p = parseInt($('fPeople').value, 10);
-  $('fEach').textContent = a > 0 && p > 0 ? '= ' + baht(a / p) + ' each' : '';
+  const s = sym(form.cur);
+  $('fEach').textContent = a > 0 && p > 0 ? '= ' + s + fmt(a / p) + ' each' : '';
+  const fx = parseFloat($('fRate').value);
+  $('fConv').textContent = a > 0 && fx > 0 ? '≈ ' + (form.cur === 'MYR' ? baht(a * fx) : 'RM ' + fmt(a / fx)) : '';
 }
 function lastSplit() {
   const s = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -390,16 +566,25 @@ function openSheet(r) {
   $('fPaid').value = r ? r.paidBy : '';
   form.cat = r ? r.category : 'Food';
   form.day = r ? r.date : (TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d);
+  const lastCur = rows.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)).pop();
+  form.cur = r ? r.currency : (lastCur ? lastCur.currency : 'THB');
+  $('fRate').value = r && r.fx > 0 ? String(r.fx) : (RATE ? String(Math.round(RATE * 10000) / 10000) : '');
+  drawCur();
+  locReq++;
+  $('fPlace').value = r ? r.place : '';
+  if (r && r.lat !== null) { form.loc = {lat: r.lat, lng: r.lng, acc: r.acc}; setLoc('got'); }
+  else { form.loc = null; setLoc('none', 'No location'); if (!r) captureLocation(); }
   $('fErr').textContent = '';
   const del = $('delBtn'); del.hidden = !r; del.classList.remove('armed'); del.textContent = 'Delete';
   drawFormChips(); updateEach();
   $('scrim').hidden = false;
   setTimeout(() => $('fAmount').focus(), 30);
 }
-function closeSheet() { $('scrim').hidden = true; editing = null; }
+function closeSheet() { $('scrim').hidden = true; editing = null; locReq++; }
 
 $('fAmount').addEventListener('input', updateEach);
 $('fPeople').addEventListener('input', updateEach);
+$('fRate').addEventListener('input', updateEach);
 $('pMinus').addEventListener('click', () => { $('fPeople').value = String(Math.max(1, (parseInt($('fPeople').value, 10) || 1) - 1)); updateEach(); });
 $('pPlus').addEventListener('click', () => { $('fPeople').value = String((parseInt($('fPeople').value, 10) || 0) + 1); updateEach(); });
 document.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => { $('fPeople').value = b.dataset.p; updateEach(); }));
@@ -419,11 +604,16 @@ $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const amount = parseFloat($('fAmount').value.replace(/,/g, ''));
   const people = parseInt($('fPeople').value, 10);
-  if (!(amount > 0)) { $('fErr').textContent = 'Enter an amount above ฿0.'; $('fAmount').focus(); return; }
+  const fx = parseFloat($('fRate').value);
+  if (!(amount > 0)) { $('fErr').textContent = 'Enter an amount above 0.'; $('fAmount').focus(); return; }
+  if (!(fx > 0)) { $('fErr').textContent = 'Enter the exchange rate (how many baht for RM 1).'; $('fRate').focus(); return; }
   if (!(people >= 1)) { $('fErr').textContent = 'Split between at least 1 person.'; $('fPeople').focus(); return; }
   const data = {
     date: form.day, description: $('fWhat').value.trim().slice(0, 200), category: form.cat,
-    amount: Math.round(amount * 100) / 100, people, paidBy: $('fPaid').value.trim().slice(0, 60)
+    amount: Math.round(amount * 100) / 100, people, paidBy: $('fPaid').value.trim().slice(0, 60),
+    currency: form.cur, fx: Math.round(fx * 10000) / 10000,
+    lat: form.loc ? form.loc.lat : null, lng: form.loc ? form.loc.lng : null, acc: form.loc ? form.loc.acc : 0,
+    place: $('fPlace').value.trim().slice(0, 120)
   };
   const btn = $('saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try {
@@ -454,13 +644,13 @@ $('delBtn').addEventListener('click', async () => {
 });
 
 $('copyBtn').addEventListener('click', async () => {
-  const s = rows.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  const s = viewRows();
   const total = s.reduce((t, r) => t + r.amount, 0);
-  const lines = ['Hat Yai trip expenses', 'Total: ' + baht(total) + ' · per person (in every split): ' + baht(s.reduce((t, r) => t + r.amount / r.people, 0)), ''];
+  const lines = ['Hat Yai trip expenses', 'Total: ' + money(total) + ' · per person (in every split): ' + money(s.reduce((t, r) => t + r.amount / r.people, 0)), ''];
   TRIP.map((t) => t.d).concat(s.map((r) => r.date)).filter((d, i, a) => a.indexOf(d) === i).sort().forEach((d) => {
     const items = s.filter((r) => r.date === d); if (!items.length) return;
-    lines.push(dayInfo(d).long + ' — ' + baht(items.reduce((t, r) => t + r.amount, 0)));
-    items.forEach((r) => lines.push('• ' + (r.description || r.category) + ': ' + baht(r.amount) + ' ÷ ' + r.people + ' = ' + baht(r.amount / r.people) + (r.paidBy ? ' (paid by ' + r.paidBy + ')' : '')));
+    lines.push(dayInfo(d).long + ' — ' + money(items.reduce((t, r) => t + r.amount, 0)));
+    items.forEach((r) => lines.push('• ' + (r.description || r.category) + ': ' + money(r.amount) + ' ÷ ' + r.people + ' = ' + money(r.amount / r.people) + (r.currency !== view ? ' [paid ' + origText(r) + ']' : '') + (r.place ? ' @ ' + r.place : '') + (r.paidBy ? ' (paid by ' + r.paidBy + ')' : '')));
     lines.push('');
   });
   try { await navigator.clipboard.writeText(lines.join('\n').trim()); toast('Summary copied'); }
@@ -486,6 +676,7 @@ async function load() {
 drawFormChips();
 render();
 load();
+loadRate();
 // pick up expenses friends add: refresh every 15 s while the page is open, and when it comes back into view
 setInterval(() => { if (document.visibilityState === 'visible' && $('scrim').hidden) load(); }, 15000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });

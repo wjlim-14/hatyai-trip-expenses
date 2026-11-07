@@ -28,12 +28,25 @@ function parse(v) {
   return v && typeof v === 'object' ? v : null;
 }
 
+function loc(body) {
+  const lat = Number(body.lat), lng = Number(body.lng);
+  if (body.lat === null || body.lat === undefined || body.lat === '' || !isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return { lat: null, lng: null, acc: 0, place: String(body.place || '').trim().slice(0, 120) };
+  }
+  return {
+    lat: Math.round(lat * 1e6) / 1e6,
+    lng: Math.round(lng * 1e6) / 1e6,
+    acc: Math.max(0, Math.min(100000, Math.round(Number(body.acc) || 0))),
+    place: String(body.place || '').trim().slice(0, 120)
+  };
+}
+
 function validate(body) {
   if (!body || typeof body !== 'object') return { error: 'Send the expense as JSON.' };
   const amount = Math.round(Number(body.amount) * 100) / 100;
   const people = Math.round(Number(body.people));
   const date = String(body.date || '');
-  if (!(amount > 0) || amount > 10000000) return { error: 'Enter an amount above ฿0.' };
+  if (!(amount > 0) || amount > 10000000) return { error: 'Enter an amount above 0.' };
   if (!(people >= 1) || people > 500) return { error: 'Split between 1 and 500 people.' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Pick a day for the expense.' };
   return {
@@ -43,7 +56,10 @@ function validate(body) {
       category: CATS.includes(body.category) ? body.category : 'Other',
       amount,
       people,
-      paidBy: String(body.paidBy || '').trim().slice(0, 60)
+      paidBy: String(body.paidBy || '').trim().slice(0, 60),
+      currency: body.currency === 'MYR' ? 'MYR' : 'THB',
+      fx: Number(body.fx) > 0.5 && Number(body.fx) < 100 ? Math.round(Number(body.fx) * 10000) / 10000 : 0,
+      ...loc(body)
     }
   };
 }
