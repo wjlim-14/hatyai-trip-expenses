@@ -207,6 +207,20 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
 .rbtn svg{width:19px;height:19px}
 .rbtn.spin svg{animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.controls{display:flex;flex-direction:column;gap:10px;margin:6px 0 4px}
+.ctrlrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ctl{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.ctl select{padding:9px 10px;font-weight:600;color:var(--ink)}
+#catChips .chip,#dayChips .chip{padding:5px 11px;font-size:12.5px}
+.lsum{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);padding:10px 2px 2px;border-top:1px solid var(--line);margin-top:6px}
+.lsum b{color:var(--ink);font-variant-numeric:tabular-nums}
+.ghead{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:16px 2px 6px;border-bottom:1px solid var(--line)}
+.ghead .gn{font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px;min-width:0}
+.ghead .gt{font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+.ghead .gm{grid-column:1/-1;font-size:12px;color:var(--muted)}
+.ghead .gbar{grid-column:1/-1;height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin-top:4px}
+.ghead .gbar i{display:block;height:100%;border-radius:2px}
+.dchip{font-size:11.5px;color:var(--muted);font-weight:500}
 @media (prefers-reduced-motion: reduce){.dbar,.fill{transition:none}}
 </style>
 </head>
@@ -249,8 +263,33 @@ details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)
   <section class="card" id="expenses">
     <div class="listhead">
       <h2>Expenses</h2>
-      <div class="chips" id="dayChips" role="group" aria-label="Show day"></div>
+      <button class="btn sm" type="button" id="lReset" hidden>Clear filters</button>
     </div>
+    <div class="controls">
+      <div class="psearch"><input class="inp" id="lSearch" type="search" autocomplete="off" placeholder="Search what, place, person" aria-label="Search expenses"></div>
+      <div class="ctrlrow">
+        <label class="ctl"><span>Group by</span>
+          <select class="inp" id="lGroup">
+            <option value="day">Day</option>
+            <option value="category">Category</option>
+            <option value="place">Place</option>
+            <option value="payer">Paid by</option>
+            <option value="none">No grouping (one list)</option>
+          </select>
+        </label>
+        <label class="ctl"><span>Sort</span>
+          <select class="inp" id="lSort">
+            <option value="new">Newest first</option>
+            <option value="old">Oldest first</option>
+            <option value="big">Biggest first</option>
+            <option value="small">Smallest first</option>
+          </select>
+        </label>
+      </div>
+      <div class="chips" id="dayChips" role="group" aria-label="Filter by day"></div>
+      <div class="chips" id="catChips" role="group" aria-label="Filter by category"></div>
+    </div>
+    <div class="lsum" id="lSum"></div>
     <div id="list"><div class="empty">Loading expenses…</div></div>
   </section>
   </div>
@@ -540,6 +579,9 @@ let rows = [];
 let canWrite = true;
 let loaded = false;
 let dayFilter = 'all';
+let lst = {group: 'day', sort: 'new', cat: 'all', q: ''};
+try { const v = JSON.parse(localStorage.getItem('hy-list') || '{}'); ['group', 'sort'].forEach((k) => { if (typeof v[k] === 'string') lst[k] = v[k]; }); } catch (e) { /* storage unavailable */ }
+const saveList = () => { try { localStorage.setItem('hy-list', JSON.stringify({group: lst.group, sort: lst.sort})); } catch (e) { /* ignore */ } };
 let editing = null;
 let form = {cat: 'Food', day: TRIP.some((t) => t.d === todayBkk) ? todayBkk : TRIP[0].d, cur: 'THB', loc: null, members: new Set()};
 
@@ -650,28 +692,90 @@ function render() {
   $('qToday').textContent = money(sorted.filter((r) => r.date === todayBkk).reduce((s, r) => s + r.amount, 0));
   if (topups.length || rows.some((r) => r.paidBy === FUND)) { const f = fundTotals(); $('qFund').textContent = (f.leftThb < 0 ? '−' : '') + money(thbToView(Math.abs(f.leftThb))); } else $('qFund').textContent = '—';
 
-  // day chips
+  renderList(sorted, days);
+}
+
+function renderList(sorted, days) {
+  // filters
   const chips = $('dayChips'); chips.replaceChildren();
-  [{d: 'all', short: 'All'}].concat(days.map((d) => ({d, short: dayInfo(d).short}))).forEach((x) => {
+  [{d: 'all', short: 'All days'}].concat(days.map((d) => ({d, short: dayInfo(d).short}))).forEach((x) => {
     const b = el('button', 'chip', x.short); b.type = 'button'; b.setAttribute('aria-pressed', String(dayFilter === x.d));
     b.addEventListener('click', () => { dayFilter = x.d; render(); });
     chips.append(b);
   });
+  const usedCats = CATS.filter((c) => sorted.some((r) => r.category === c.k));
+  const cc = $('catChips'); cc.replaceChildren();
+  [{k: 'all'}].concat(usedCats).forEach((c) => {
+    const b = el('button', 'chip', c.k === 'all' ? 'All categories' : c.k); b.type = 'button'; b.setAttribute('aria-pressed', String(lst.cat === c.k));
+    b.addEventListener('click', () => { lst.cat = c.k; render(); });
+    cc.append(b);
+  });
+  $('lGroup').value = lst.group; $('lSort').value = lst.sort;
+  const q = lst.q.trim().toLowerCase();
+  const shown = sorted.filter((r) => (dayFilter === 'all' || r.date === dayFilter) && (lst.cat === 'all' || r.category === lst.cat) &&
+    (!q || [r.description, r.place, r.paidBy, r.category, r.members.join(' ')].join(' ').toLowerCase().includes(q)));
+  $('lReset').hidden = dayFilter === 'all' && lst.cat === 'all' && !q;
 
-  // list
+  // summary of what is shown
+  const sum = $('lSum'); sum.replaceChildren();
+  const tot = shown.reduce((t, r) => t + r.amount, 0);
+  if (shown.length) {
+    const amts = shown.map((r) => r.amount).sort((x, y) => x - y);
+    const med = amts.length % 2 ? amts[(amts.length - 1) / 2] : (amts[amts.length / 2 - 1] + amts[amts.length / 2]) / 2;
+    const allTot = sorted.reduce((t, r) => t + r.amount, 0);
+    [['', shown.length + (shown.length === 1 ? ' expense' : ' expenses')], ['Total ', money(tot)], ['Average ', money(tot / shown.length)], ['Middle ', money(med)], ['Range ', money(amts[0]) + ' – ' + money(amts[amts.length - 1])]]
+      .concat(shown.length < sorted.length ? [['', Math.round(tot / (allTot || 1) * 100) + '% of all spending']] : [])
+      .forEach(([k, v]) => { const sp = el('span', '', k); sp.append(el('b', '', v)); sum.append(sp); });
+  }
+
   const list = $('list'); list.replaceChildren();
-  const shown = sorted.filter((r) => dayFilter === 'all' || r.date === dayFilter);
-  if (!shown.length) { list.append(el('div', 'empty', !loaded ? 'Loading expenses…' : rows.length ? 'No expenses on this day yet.' : 'No expenses yet. Tap “Add expense” to log one.')); return; }
+  if (!shown.length) { list.append(el('div', 'empty', !loaded ? 'Loading expenses…' : rows.length ? 'Nothing matches these filters.' : 'No expenses yet. Tap “Add expense” to log one.')); return; }
+
+  // sort items
+  const cmp = {
+    new: (x, y) => y.date.localeCompare(x.date) || y.createdAt.localeCompare(x.createdAt),
+    old: (x, y) => x.date.localeCompare(y.date) || x.createdAt.localeCompare(y.createdAt),
+    big: (x, y) => y.amount - x.amount,
+    small: (x, y) => x.amount - y.amount
+  }[lst.sort] || ((x, y) => 0);
+  const items = shown.slice().sort(cmp);
+
+  // group
+  const keyOf = {
+    day: (r) => r.date,
+    category: (r) => r.category,
+    place: (r) => r.place || 'No place',
+    payer: (r) => r.paidBy || 'Not set',
+    none: () => ''
+  }[lst.group] || ((r) => r.date);
   const groups = [];
-  shown.forEach((r) => { let g = groups.find((x) => x.d === r.date); if (!g) { g = {d: r.date, items: []}; groups.push(g); } g.items.push(r); });
-  groups.reverse().forEach((g) => {
-    const h = el('div', 'dayhead'); h.append(el('span', '', dayInfo(g.d).long), el('span', '', money(g.items.reduce((s, r) => s + r.amount, 0))));
-    list.append(h);
-    g.items.slice().reverse().forEach((r) => {
+  items.forEach((r) => { const k = keyOf(r); let g = groups.find((x) => x.k === k); if (!g) { g = {k, items: [], tot: 0}; groups.push(g); } g.items.push(r); g.tot += r.amount; });
+  if (lst.group === 'day') groups.sort((x, y) => (lst.sort === 'old' ? x.k.localeCompare(y.k) : lst.sort === 'big' ? y.tot - x.tot : lst.sort === 'small' ? x.tot - y.tot : y.k.localeCompare(x.k)));
+  else if (lst.group !== 'none') groups.sort((x, y) => (lst.sort === 'small' ? x.tot - y.tot : y.tot - x.tot));
+  const maxG = Math.max(1, ...groups.map((g) => g.tot));
+
+  groups.forEach((g) => {
+    if (lst.group !== 'none') {
+      const h = el('div', 'ghead');
+      const n = el('div', 'gn');
+      let color = 'var(--accent)';
+      if (lst.group === 'category') { color = catOf(g.k).c; const d = el('span', 'dot'); d.style.background = color; n.append(d); }
+      n.append(el('span', '', lst.group === 'day' ? dayInfo(g.k).long : g.k));
+      const bar = el('div', 'gbar'); const i = el('i'); i.style.width = (g.tot / maxG * 100) + '%'; i.style.background = color; bar.append(i);
+      h.append(n, el('div', 'gt', money(g.tot)), el('div', 'gm', g.items.length + (g.items.length === 1 ? ' expense' : ' expenses') + ' · avg ' + money(g.tot / g.items.length) + ' · ' + Math.round(g.tot / (tot || 1) * 100) + '% of shown'), bar);
+      list.append(h);
+    }
+    g.items.forEach((r) => {
       const b = el('button', 'item'); b.type = 'button'; b.disabled = !canWrite;
       const c = catOf(r.category);
       const ic = el('div', 'icon', c.i); ic.style.background = c.c;
-      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', c.k + ' · split ' + (r.members.length ? r.members.join(', ') : r.people) + (r.paidBy ? ' · paid by ' + r.paidBy : '') + (r.place ? ' · at ' + r.place : (r.lat !== null ? ' · pinned' : ''))));
+      const metaParts = [];
+      if (lst.group !== 'day') metaParts.push(dayInfo(r.date).short);
+      if (lst.group !== 'category') metaParts.push(c.k);
+      metaParts.push('split ' + (r.members.length ? r.members.join(', ') : r.people));
+      if (r.paidBy && lst.group !== 'payer') metaParts.push('paid by ' + r.paidBy);
+      if (lst.group !== 'place') { if (r.place) metaParts.push('at ' + r.place); else if (r.lat !== null) metaParts.push('pinned'); }
+      const mid = el('div'); mid.append(el('div', 'what', r.description || c.k), el('div', 'meta', metaParts.join(' · ')));
       const amt = el('div', 'amt'); amt.append(el('div', 'a', money(r.amount)), el('div', 'e', (r.currency !== view ? 'paid ' + origText(r) + ' · ' : '') + money(r.amount / r.people) + ' each'));
       b.append(ic, mid, amt);
       if (canWrite) { b.setAttribute('aria-label', 'Edit ' + (r.description || c.k)); b.addEventListener('click', () => openSheet(r.orig)); }
@@ -679,6 +783,11 @@ function render() {
     });
   });
 }
+$('lGroup').addEventListener('change', () => { lst.group = $('lGroup').value; saveList(); render(); });
+$('lSort').addEventListener('change', () => { lst.sort = $('lSort').value; saveList(); render(); });
+let lSearchT;
+$('lSearch').addEventListener('input', () => { clearTimeout(lSearchT); lSearchT = setTimeout(() => { lst.q = $('lSearch').value; render(); }, 200); });
+$('lReset').addEventListener('click', () => { dayFilter = 'all'; lst.cat = 'all'; lst.q = ''; $('lSearch').value = ''; render(); });
 
 // ---------- settle up ----------
 function settle() {
